@@ -3,21 +3,27 @@ Agent integration tests — golden-fixture tests for all PKM pipeline agents.
 
 Structure:
   - TestReaderAgent: golden-fixture + agent_runs write tests (plan 02-02)
-  - TestSummarizerAgent: placeholder (plan 02-03)
-  - TestConceptExtractor: placeholder (plan 02-03)
+  - TestSummarizerAgent: golden-fixture + chunk_id rule + repair-retry tests (plan 02-03)
+  - TestConceptExtractor: golden-fixture test (plan 02-03)
   - TestKGAgent: placeholder (plan 02-04)
 """
 
 from __future__ import annotations
 
 import datetime
+import json
 import uuid
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import pydantic
 import pytest
 
+from pkm.agents.concept_extractor import ConceptExtractor
 from pkm.agents.reader_agent import ReaderAgent
+from pkm.agents.summarizer_agent import SummarizerAgent
+from pkm.llm.models import SONNET
+from pkm.schemas.agent_io import ConceptExtractorOutput, SummarizerOutput
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -150,11 +156,107 @@ class TestReaderAgent:
 
 
 class TestSummarizerAgent:
-    pass
+    def test_summarizer_agent_golden(self, db_conn):
+        """
+        Golden-fixture test: mock LLM returns a parsed SummarizerOutput instance;
+        run() returns a SummarizerOutput; agent_runs row written with status='ok'.
+        """
+        fixture_text = (_FIXTURES / "golden_summarizer_output.json").read_text()
+        golden = SummarizerOutput.model_validate(json.loads(fixture_text))
+
+        mock_llm_client = build_mock_llm_client(db_conn, golden)
+        agent = SummarizerAgent()
+        result = agent.run(mock_llm_client, input_text="some text")
+
+        assert isinstance(result, SummarizerOutput), "run() must return a SummarizerOutput"
+        assert result.thesis, "thesis must be a non-empty string"
+
+        row = db_conn.execute(
+            "SELECT status FROM agent_runs WHERE agent='summarizer_agent'"
+        ).fetchone()
+        assert row is not None, "agent_runs must contain a row for summarizer_agent"
+        assert row[0] == "ok", f"Expected status='ok', got {row[0]!r}"
+
+    def test_summarizer_chunk_id_rule(self, db_conn):
+        """
+        Data contract (AGNT-02/spec AD-6): any KeyClaim with chunk_id == 'null'
+        must have confidence <= 0.5.
+        """
+        fixture_text = (_FIXTURES / "golden_summarizer_output.json").read_text()
+        golden = SummarizerOutput.model_validate(json.loads(fixture_text))
+
+        mock_llm_client = build_mock_llm_client(db_conn, golden)
+        agent = SummarizerAgent()
+        result = agent.run(mock_llm_client, input_text="some text")
+
+        for claim in result.key_claims:
+            if claim.chunk_id == "null":
+                assert claim.confidence <= 0.5, (
+                    f"Claim with chunk_id='null' must have confidence <= 0.5, "
+                    f"got {claim.confidence}: {claim.statement!r}"
+                )
+
+    def test_repair_retry_propagates_on_double_failure(self, db_conn):
+        """
+        When the API returns schema-invalid JSON both on initial call and repair attempt,
+        LLMClient._extract_result must propagate the pydantic.ValidationError (AGNT-05).
+        """
+        from pkm.llm.client import LLMClient
+
+        llm_client = LLMClient(db_conn, api_key="test-key")
+
+        malformed_content = MagicMock()
+        malformed_content.type = "tool_use"
+        malformed_content.name = "structured_output"
+        malformed_content.input = {"bad_field": "wrong"}
+
+        fake_response = MagicMock()
+        fake_response.usage.input_tokens = 5
+        fake_response.usage.output_tokens = 5
+        fake_response.content = [malformed_content]
+
+        with patch("pkm.llm.client.anthropic.Anthropic") as MockAnthropic:
+            mock_instance = MockAnthropic.return_value
+            mock_instance.messages.create.return_value = fake_response
+
+            # Re-create LLMClient so it uses the patched Anthropic
+            patched_client = LLMClient(db_conn, api_key="test-key")
+
+            with pytest.raises(pydantic.ValidationError):
+                patched_client.call(
+                    agent_name="summarizer_agent",
+                    model=SONNET,
+                    prompt_version="v1",
+                    messages=[{"role": "user", "content": "test"}],
+                    input_text="test",
+                    output_schema=SummarizerOutput,
+                )
 
 
 class TestConceptExtractor:
-    pass
+    def test_concept_extractor_golden(self, db_conn):
+        """
+        Golden-fixture test: mock LLM returns a parsed ConceptExtractorOutput instance;
+        run() returns a ConceptExtractorOutput; agent_runs row written with status='ok'.
+        """
+        fixture_text = (_FIXTURES / "golden_extractor_output.json").read_text()
+        golden = ConceptExtractorOutput.model_validate(json.loads(fixture_text))
+
+        mock_llm_client = build_mock_llm_client(db_conn, golden)
+        agent = ConceptExtractor()
+        result = agent.run(mock_llm_client, input_text="some text")
+
+        assert isinstance(result, ConceptExtractorOutput), (
+            "run() must return a ConceptExtractorOutput"
+        )
+        assert len(result.claims) >= 1, "claims list must have at least one entry"
+        assert len(result.concept_matches) >= 1, "concept_matches must have at least one entry"
+
+        row = db_conn.execute(
+            "SELECT status FROM agent_runs WHERE agent='concept_extractor'"
+        ).fetchone()
+        assert row is not None, "agent_runs must contain a row for concept_extractor"
+        assert row[0] == "ok", f"Expected status='ok', got {row[0]!r}"
 
 
 class TestKGAgent:

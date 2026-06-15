@@ -1,0 +1,17 @@
+{
+  "claims": [
+    {
+      "statement": "Atomic notes linked together surface emergent patterns.",
+      "subject": "atomic notes",
+      "predicate": "surface",
+      "object": "emergent patterns",
+      "claim_type": "causal",
+      "chunk_id": "chk_abc123_001",
+      "confidence": 0.85
+    }
+  ],
+  "concept_matches": [
+    {"concept_name": "Atomic Notes", "claim_indices": [0], "confidence": 0.9},
+    {"concept_name": "Knowledge Management", "claim_indices": [0], "confidence": 0.75}
+  ]
+}
