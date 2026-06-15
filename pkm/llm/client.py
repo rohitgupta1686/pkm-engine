@@ -212,13 +212,13 @@ class LLMClient:
         if cached is not None:
             return {"cached": True, "input_hash": input_hash}
 
-        started_at = datetime.datetime.utcnow().isoformat() + "Z"
+        started_at = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
 
         try:
             response, tokens_in, tokens_out = self._call_api(model, messages, output_schema)
             result = self._extract_result(response, output_schema, messages, model)
             cost_usd = 0.0  # placeholder; exact pricing not hardcoded
-            finished_at = datetime.datetime.utcnow().isoformat() + "Z"
+            finished_at = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
             run_id = "run_" + uuid.uuid4().hex[:20]
             self._write_run(
                 run_id,
@@ -242,7 +242,7 @@ class LLMClient:
                 "tokens_out": tokens_out,
             }
         except Exception as e:
-            finished_at = datetime.datetime.utcnow().isoformat() + "Z"
+            finished_at = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
             run_id = "run_" + uuid.uuid4().hex[:20]
             self._write_run(
                 run_id,
