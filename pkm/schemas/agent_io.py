@@ -42,3 +42,14 @@ class GraphRelationship(BaseModel):
 class KGAgentOutput(BaseModel):
     nodes: list[GraphNode]
     relationships: list[GraphRelationship]
+
+
+class ConceptMatch(BaseModel):
+    concept_name: str
+    claim_indices: list[int]  # indices into the claims list
+    confidence: float = Field(ge=0, le=1)
+
+
+class ConceptExtractorOutput(BaseModel):
+    claims: list[KeyClaim]
+    concept_matches: list[ConceptMatch]
