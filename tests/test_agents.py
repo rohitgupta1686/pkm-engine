@@ -5,7 +5,7 @@ Structure:
   - TestReaderAgent: golden-fixture + agent_runs write tests (plan 02-02)
   - TestSummarizerAgent: golden-fixture + chunk_id rule + repair-retry tests (plan 02-03)
   - TestConceptExtractor: golden-fixture test (plan 02-03)
-  - TestKGAgent: placeholder (plan 02-04)
+  - TestKGAgent: golden-fixture test (plan 02-04)
 """
 
 from __future__ import annotations
@@ -20,10 +20,11 @@ import pydantic
 import pytest
 
 from pkm.agents.concept_extractor import ConceptExtractor
+from pkm.agents.kg_agent import KGAgent
 from pkm.agents.reader_agent import ReaderAgent
 from pkm.agents.summarizer_agent import SummarizerAgent
 from pkm.llm.models import SONNET
-from pkm.schemas.agent_io import ConceptExtractorOutput, SummarizerOutput
+from pkm.schemas.agent_io import ConceptExtractorOutput, KGAgentOutput, SummarizerOutput
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -260,4 +261,24 @@ class TestConceptExtractor:
 
 
 class TestKGAgent:
-    pass
+    def test_kg_agent_golden(self, db_conn):
+        """
+        Golden-fixture test: mock LLM returns a parsed KGAgentOutput instance;
+        run() returns a KGAgentOutput; agent_runs row written with status='ok'.
+        """
+        fixture_text = (_FIXTURES / "golden_kg_output.json").read_text()
+        golden = KGAgentOutput.model_validate(json.loads(fixture_text))
+
+        mock_llm_client = build_mock_llm_client(db_conn, golden)
+        agent = KGAgent()
+        result = agent.run(mock_llm_client, input_text="some claims text")
+
+        assert isinstance(result, KGAgentOutput), "run() must return a KGAgentOutput"
+        assert len(result.nodes) >= 1, "nodes list must have at least one entry"
+        assert isinstance(result.relationships, list), "relationships must be a list"
+
+        row = db_conn.execute(
+            "SELECT status FROM agent_runs WHERE agent='kg_agent'"
+        ).fetchone()
+        assert row is not None, "agent_runs must contain a row for kg_agent"
+        assert row[0] == "ok", f"Expected status='ok', got {row[0]!r}"
