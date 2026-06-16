@@ -142,6 +142,7 @@ def write_source_page(
     summary: "SummarizerOutput",
     claims: list[dict],
     concept_names: list[str],
+    commit: bool = True,
 ) -> str:
     """Render wiki/sources/<slug>.md for a source, idempotently.
 
@@ -250,7 +251,7 @@ def write_source_page(
     out_path.write_text(content, encoding="utf-8")
 
     # Update sources.wiki_path (mutable — not raw_path)
-    update_source_wiki_path(conn, source_id, wiki_path)
+    update_source_wiki_path(conn, source_id, wiki_path, commit=commit)
 
     return wiki_path
 

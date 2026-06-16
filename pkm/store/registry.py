@@ -45,7 +45,7 @@ def connect(settings: Settings | None = None):
 # CRUD helpers
 # ---------------------------------------------------------------------------
 
-def upsert_source(conn, record: dict) -> tuple[str, bool]:
+def upsert_source(conn, record: dict, commit: bool = True) -> tuple[str, bool]:
     """INSERT OR IGNORE a sources row, return (source_id, created: bool).
 
     Security (T-03-03): All SQL uses parameterized ? placeholders — no
@@ -99,11 +99,12 @@ def upsert_source(conn, record: dict) -> tuple[str, bool]:
             record["updated_at"],
         ),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return source_id, True
 
 
-def insert_chunks(conn, source_id: str, chunks: list[dict]) -> int:
+def insert_chunks(conn, source_id: str, chunks: list[dict], commit: bool = True) -> int:
     """INSERT OR IGNORE chunk rows, return count of rows actually inserted.
 
     Security (T-03-03): parameterized ? placeholders throughout.
@@ -143,11 +144,12 @@ def insert_chunks(conn, source_id: str, chunks: list[dict]) -> int:
             ),
         )
         inserted += 1
-    conn.commit()
+    if commit:
+        conn.commit()
     return inserted
 
 
-def insert_claim(conn, claim: dict) -> str:
+def insert_claim(conn, claim: dict, commit: bool = True) -> str:
     """INSERT a claims row with status='candidate', return the new claim id.
 
     ID format: "clm_" + uuid4().hex (uuid7 library not a dep; uuid4 documented
@@ -184,11 +186,12 @@ def insert_claim(conn, claim: dict) -> str:
             claim["created_at"],
         ),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return claim_id
 
 
-def upsert_concept(conn, concept: dict) -> tuple[str, bool]:
+def upsert_concept(conn, concept: dict, commit: bool = True) -> tuple[str, bool]:
     """INSERT OR IGNORE a concepts row, return (concept_id, created: bool).
 
     Security (T-03-03): parameterized ? placeholders throughout.
@@ -225,11 +228,12 @@ def upsert_concept(conn, concept: dict) -> tuple[str, bool]:
             concept["updated_at"],
         ),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return concept_id, True
 
 
-def link_claim_concept(conn, claim_id: str, concept_id: str) -> None:
+def link_claim_concept(conn, claim_id: str, concept_id: str, commit: bool = True) -> None:
     """INSERT OR IGNORE a claim_concepts row (idempotent).
 
     Security (T-03-03): parameterized ? placeholders throughout.
@@ -238,10 +242,11 @@ def link_claim_concept(conn, claim_id: str, concept_id: str) -> None:
         "INSERT OR IGNORE INTO claim_concepts (claim_id, concept_id) VALUES (?, ?)",
         (claim_id, concept_id),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
-def update_source_wiki_path(conn, source_id: str, wiki_path: str) -> None:
+def update_source_wiki_path(conn, source_id: str, wiki_path: str, commit: bool = True) -> None:
     """Update the wiki_path column for a source row.
 
     wiki_path is mutable (only raw_path has the immutability trigger).
@@ -251,4 +256,5 @@ def update_source_wiki_path(conn, source_id: str, wiki_path: str) -> None:
         "UPDATE sources SET wiki_path = ? WHERE id = ?",
         (wiki_path, source_id),
     )
-    conn.commit()
+    if commit:
+        conn.commit()

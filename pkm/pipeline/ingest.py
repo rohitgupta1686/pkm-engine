@@ -235,7 +235,6 @@ def run_ingest(
             "text": c["text"],
             "token_count": c.get("token_count", 0),
         })
-    insert_chunks(conn, source_id, chunk_records)
 
     # Build a lookup: ordinal -> chunk_id for claim mapping
     ordinal_to_chunk_id = {c["ordinal"]: c["id"] for c in chunk_records}
@@ -277,97 +276,115 @@ def run_ingest(
         kg_output = None
 
     # -------------------------------------------------------------------------
-    # Step 6: Persist claims, concepts, and links
+    # Steps 4-8: All DB writes + log append are atomic within a single transaction.
+    # On any exception, conn.rollback() fires and the exception re-raises.
     # -------------------------------------------------------------------------
-    persisted_claims: list[dict] = []  # dicts with statement, chunk_id, claim_id
+    try:
+        conn.execute("BEGIN")
 
-    if extractor_output is not None:
-        claims_list = extractor_output.claims
-    elif summarizer_output is not None:
-        claims_list = summarizer_output.key_claims
-    else:
-        claims_list = []
+        # Step 4 (DB): insert chunks (commit=False — inside explicit transaction)
+        insert_chunks(conn, source_id, chunk_records, commit=False)
 
-    for claim in claims_list:
-        claim_row = {
-            "source_id": source_id,
-            "chunk_id": claim.chunk_id,
-            "statement": claim.statement,
-            "subject": claim.subject,
-            "predicate": claim.predicate,
-            "object": claim.object,
-            "claim_type": claim.claim_type,
-            "confidence": claim.confidence,
-            "status": "candidate",  # status_mapping_contract: initial claims.status is 'candidate'
-            "created_at": now_str,
-        }
-        claim_id_str = insert_claim(conn, claim_row)
-        persisted_claims.append({
-            "id": claim_id_str,
-            "statement": claim.statement,
-            "chunk_id": claim.chunk_id,
-        })
+        # -------------------------------------------------------------------------
+        # Step 6: Persist claims, concepts, and links
+        # -------------------------------------------------------------------------
+        persisted_claims: list[dict] = []  # dicts with statement, chunk_id, claim_id
 
-    # Collect concept names from extractor output
-    concept_names: list[str] = []
-    concept_id_map: dict[str, str] = {}  # name -> concept_id in DB
+        if extractor_output is not None:
+            claims_list = extractor_output.claims
+        elif summarizer_output is not None:
+            claims_list = summarizer_output.key_claims
+        else:
+            claims_list = []
 
-    if extractor_output is not None:
-        for cm in extractor_output.concept_matches:
-            name = cm.concept_name
-            concept_names.append(name)
+        for claim in claims_list:
+            claim_row = {
+                "source_id": source_id,
+                "chunk_id": claim.chunk_id,
+                "statement": claim.statement,
+                "subject": claim.subject,
+                "predicate": claim.predicate,
+                "object": claim.object,
+                "claim_type": claim.claim_type,
+                "confidence": claim.confidence,
+                "status": "candidate",  # status_mapping_contract: initial claims.status is 'candidate'
+                "created_at": now_str,
+            }
+            claim_id_str = insert_claim(conn, claim_row, commit=False)
+            persisted_claims.append({
+                "id": claim_id_str,
+                "statement": claim.statement,
+                "chunk_id": claim.chunk_id,
+            })
 
-            # Resolve or create concept
-            existing_cid = resolve_concept(conn, name)
-            if existing_cid is None:
-                cid = make_concept_id(name)
-                slug = slugify(name)
-                upsert_concept(conn, {
-                    "id": cid,
-                    "name": name,
-                    "wiki_path": f"wiki/concepts/{slug}.md",
-                    "created_at": now_str,
-                    "updated_at": now_str,
-                })
-                concept_id_map[name] = cid
-            else:
-                concept_id_map[name] = existing_cid
+        # Collect concept names from extractor output
+        concept_names: list[str] = []
+        concept_id_map: dict[str, str] = {}  # name -> concept_id in DB
 
-            # Link the referenced claims to this concept
-            for idx in cm.claim_indices:
-                if idx < len(persisted_claims):
-                    link_claim_concept(conn, persisted_claims[idx]["id"], concept_id_map[name])
+        if extractor_output is not None:
+            for cm in extractor_output.concept_matches:
+                name = cm.concept_name
+                concept_names.append(name)
 
-    # -------------------------------------------------------------------------
-    # Step 7: Write vault pages
-    # -------------------------------------------------------------------------
-    # Guard: write_source_page requires a non-None summary (for summary.thesis).
-    # If summarizer_output is None (cache hit on a forced re-run), use a minimal stub.
-    if summarizer_output is None:
-        from pkm.schemas.agent_io import SummarizerOutput as _SO
-        summarizer_output = _SO(
-            thesis="(summary unavailable — cached run)", key_claims=[], caveats=[], summary_confidence=0.0
+                # Resolve or create concept
+                existing_cid = resolve_concept(conn, name)
+                if existing_cid is None:
+                    cid = make_concept_id(name)
+                    slug = slugify(name)
+                    upsert_concept(conn, {
+                        "id": cid,
+                        "name": name,
+                        "wiki_path": f"wiki/concepts/{slug}.md",
+                        "created_at": now_str,
+                        "updated_at": now_str,
+                    }, commit=False)
+                    concept_id_map[name] = cid
+                else:
+                    concept_id_map[name] = existing_cid
+
+                # Link the referenced claims to this concept
+                for idx in cm.claim_indices:
+                    if idx < len(persisted_claims):
+                        link_claim_concept(conn, persisted_claims[idx]["id"], concept_id_map[name], commit=False)
+
+        # -------------------------------------------------------------------------
+        # Step 7: Write vault pages
+        # -------------------------------------------------------------------------
+        # Guard: write_source_page requires a non-None summary (for summary.thesis).
+        # If summarizer_output is None (cache hit on a forced re-run), use a minimal stub.
+        if summarizer_output is None:
+            from pkm.schemas.agent_io import SummarizerOutput as _SO
+            summarizer_output = _SO(
+                thesis="(summary unavailable — cached run)", key_claims=[], caveats=[], summary_confidence=0.0
+            )
+
+        source_slug = slugify(title)
+        wiki_path = write_source_page(
+            conn, vault_root, source_record, summarizer_output, persisted_claims, concept_names,
+            commit=False,
         )
 
-    source_slug = slugify(title)
-    wiki_path = write_source_page(
-        conn, vault_root, source_record, summarizer_output, persisted_claims, concept_names
-    )
+        for name in concept_names:
+            cid = concept_id_map.get(name, make_concept_id(name))
+            write_concept_page(conn, vault_root, cid, name, source_slug)
 
-    for name in concept_names:
-        cid = concept_id_map.get(name, make_concept_id(name))
-        write_concept_page(conn, vault_root, cid, name, source_slug)
+        # -------------------------------------------------------------------------
+        # Step 8: Append log line
+        # -------------------------------------------------------------------------
+        n_claims = len(persisted_claims)
+        n_concepts = len(concept_names)
+        log_line = (
+            f"{now_str} ingest {source_id} -> {wiki_path} "
+            f"({n_claims} claims, {n_concepts} concepts)\n"
+        )
+        append_log(vault_root, log_line)
 
-    # -------------------------------------------------------------------------
-    # Step 8: Append log line
-    # -------------------------------------------------------------------------
-    n_claims = len(persisted_claims)
-    n_concepts = len(concept_names)
-    log_line = (
-        f"{now_str} ingest {source_id} -> {wiki_path} "
-        f"({n_claims} claims, {n_concepts} concepts)\n"
-    )
-    append_log(vault_root, log_line)
+        # All DB writes succeeded — commit the transaction
+        conn.commit()
+
+    except Exception:
+        conn.rollback()
+        raise
 
     # -------------------------------------------------------------------------
     # Step 9: Return result
