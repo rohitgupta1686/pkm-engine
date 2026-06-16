@@ -321,6 +321,14 @@ def run_ingest(
     # -------------------------------------------------------------------------
     # Step 7: Write vault pages
     # -------------------------------------------------------------------------
+    # Guard: write_source_page requires a non-None summary (for summary.thesis).
+    # If summarizer_output is None (cache hit on a forced re-run), use a minimal stub.
+    if summarizer_output is None:
+        from pkm.schemas.agent_io import SummarizerOutput as _SO
+        summarizer_output = _SO(
+            thesis="(summary unavailable — cached run)", key_claims=[], caveats=[], summary_confidence=0.0
+        )
+
     source_slug = slugify(title)
     wiki_path = write_source_page(
         conn, vault_root, source_record, summarizer_output, persisted_claims, concept_names
