@@ -60,6 +60,23 @@ _KG_ROLE = "kg_agent"
 
 _ALL_AGENT_ROLES = (_READER_ROLE, _SUMMARIZER_ROLE, _EXTRACTOR_ROLE, _KG_ROLE)
 
+# Locked set of valid source types matching the CHECK constraint in sources.type
+_VALID_SOURCE_TYPES = frozenset({"Article", "Book", "Paper", "Newsletter", "Podcast", "Meeting", "Note"})
+
+
+def _normalize_source_type(value: str | None) -> str:
+    """Normalize a raw source type value to one of the 7 CHECK-valid values.
+
+    Title-cases the trimmed value (maps 'article' -> 'Article', 'paper' -> 'Paper').
+    Falls back to 'Article' for falsy or unrecognized values.
+    """
+    if not value:
+        return "Article"
+    normalized = value.strip().title()
+    if normalized in _VALID_SOURCE_TYPES:
+        return normalized
+    return "Article"
+
 
 def _now_iso(dt: datetime | None) -> str:
     """Return an ISO-8601 UTC timestamp string, defaulting to now if dt is None."""
@@ -72,15 +89,18 @@ def _now_iso(dt: datetime | None) -> str:
 
 
 def _has_prior_agent_runs(conn, source_id: str) -> bool:
-    """Return True if agent_runs already has ok rows for this source's core agents."""
-    for role in _ALL_AGENT_ROLES:
-        row = conn.execute(
-            "SELECT id FROM agent_runs WHERE agent = ? AND source_id = ? AND status = 'ok' LIMIT 1",
-            (role, source_id),
-        ).fetchone()
-        if row is not None:
-            return True
-    return False
+    """Return True only when ALL four core agents have an ok row for this source.
+
+    Uses COUNT(DISTINCT agent) so a source partially processed (e.g. only
+    reader_agent completed) returns False and will NOT be short-circuited.
+    """
+    row = conn.execute(
+        "SELECT COUNT(DISTINCT agent) FROM agent_runs "
+        "WHERE source_id = ? AND status = 'ok' AND agent IN (?, ?, ?, ?)",
+        (source_id, *_ALL_AGENT_ROLES),
+    ).fetchone()
+    count = row[0] if row else 0
+    return count == len(_ALL_AGENT_ROLES)
 
 
 def _parse_title_from_front_matter(raw_text: str) -> str | None:
@@ -158,7 +178,7 @@ def run_ingest(
     author = _parse_field_from_front_matter(raw_text, "author") or ""
     url = _parse_field_from_front_matter(raw_text, "url") or ""
     date_saved = _parse_field_from_front_matter(raw_text, "date_saved") or now_str
-    source_type = _parse_field_from_front_matter(raw_text, "type") or "Article"
+    source_type = _normalize_source_type(_parse_field_from_front_matter(raw_text, "type"))
 
     # -------------------------------------------------------------------------
     # Step 2: Upsert source
