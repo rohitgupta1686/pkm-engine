@@ -561,6 +561,107 @@ class TestRollbackAtomicity:
 # Helper: multi-agent mock for arbitrary raw text (used by source_type tests)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Regression tests for CR-01 (gap-closure plan 03-05)
+# ---------------------------------------------------------------------------
+
+
+class TestConceptFrontMatterKeyOrder:
+    """CR-01: _render_front_matter must iterate key_order, not the hardcoded source tuple."""
+
+    def test_render_front_matter_respects_key_order(self):
+        """key_order controls emission order; keys outside key_order are omitted."""
+        from pkm.store.vault import _render_front_matter
+
+        output = _render_front_matter(
+            {"id": "x", "title": "t"},
+            key_order=("title", "id"),
+        )
+        title_pos = output.index("title:")
+        id_pos = output.index("id:")
+        assert title_pos < id_pos, (
+            f"Expected 'title:' before 'id:' with key_order=('title','id'), "
+            f"but title_pos={title_pos} >= id_pos={id_pos}"
+        )
+
+    def test_render_front_matter_omits_keys_not_in_order(self):
+        """A field present in fields but absent from key_order is NOT emitted."""
+        from pkm.store.vault import _render_front_matter
+
+        output = _render_front_matter(
+            {"id": "x", "title": "t"},
+            key_order=("id",),
+        )
+        # 'title' must not appear in the body lines (the --- delimiters are OK)
+        body_lines = [ln for ln in output.splitlines() if ln.startswith("title")]
+        assert not body_lines, (
+            f"'title' appeared in output despite not being in key_order: {output!r}"
+        )
+
+    def test_concept_page_follows_concept_key_order(self, db_conn, tmp_path, monkeypatch):
+        """write_concept_page passes _FRONT_MATTER_KEYS_CONCEPT to _render_front_matter.
+
+        Monkeypatch _FRONT_MATTER_KEYS_CONCEPT to a reordered tuple (swap id/title).
+        Assert the rendered concept page reflects the patched order, not the source order.
+        """
+        import datetime
+        import pkm.store.vault as vault_mod
+        from pkm.store.vault import _FRONT_MATTER_KEYS_CONCEPT, _FRONT_MATTER_KEYS_SOURCE
+        from pkm.store.registry import upsert_concept
+
+        # Build a patched concept tuple with title before id (swapped from the default)
+        patched_concept_keys = ("title", "id") + tuple(
+            k for k in _FRONT_MATTER_KEYS_CONCEPT if k not in ("title", "id")
+        )
+        # Confirm source tuple still starts with id (so the orders diverge)
+        assert _FRONT_MATTER_KEYS_SOURCE[0] == "id", (
+            "Precondition failed: source tuple should start with 'id'"
+        )
+
+        monkeypatch.setattr(vault_mod, "_FRONT_MATTER_KEYS_CONCEPT", patched_concept_keys)
+
+        # Seed a concept row
+        now = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
+        concept_id = "cpt_operating-leverage"
+        upsert_concept(db_conn, {
+            "id": concept_id,
+            "name": "Operating Leverage",
+            "definition": "",
+            "domain": "finance",
+            "wiki_path": "",
+            "created_at": now,
+            "updated_at": now,
+        })
+
+        vault_root = tmp_path / "vault"
+        (vault_root / "wiki" / "concepts").mkdir(parents=True)
+
+        vault_mod.write_concept_page(
+            conn=db_conn,
+            vault_root=vault_root,
+            concept_id=concept_id,
+            name="Operating Leverage",
+            source_slug="some-source",
+        )
+
+        concept_file = vault_root / "wiki" / "concepts" / "operating-leverage.md"
+        assert concept_file.exists(), "Concept page was not written"
+        content = concept_file.read_text(encoding="utf-8")
+
+        # Under the patched concept key order, 'title:' must appear before 'id:'
+        title_pos = content.index("title:")
+        id_pos = content.index("id:")
+        assert title_pos < id_pos, (
+            f"Concept page did NOT follow the patched concept key order "
+            f"(title_pos={title_pos}, id_pos={id_pos}). "
+            f"This means write_concept_page is using the source key order instead."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Helper: multi-agent mock for arbitrary raw text (used by source_type tests)
+# ---------------------------------------------------------------------------
+
 def _build_multi_agent_mock_for_text(conn, raw_text: str) -> MagicMock:
     """Like _build_multi_agent_mock but accepts arbitrary raw_text instead of fixture."""
     from pkm.ingest.hashing import sha256_content, source_id_from_hash, chunk_id as _chunk_id

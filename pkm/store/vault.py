@@ -45,14 +45,23 @@ _FRONT_MATTER_KEYS_CONCEPT = (
 )
 
 
-def _render_front_matter(fields: dict) -> str:
+def _render_front_matter(
+    fields: dict,
+    key_order: tuple = _FRONT_MATTER_KEYS_SOURCE,
+) -> str:
     """Render YAML front matter in a fixed key order for byte stability.
 
-    Only the keys in the declared order are emitted (extras are ignored).
+    Only the keys in ``key_order`` are emitted (extras are ignored).
     String values are quoted; lists render as YAML sequences; dicts as mappings.
+
+    Args:
+        fields:    Mapping of field names to values.
+        key_order: Tuple of key names to emit, in order.  Defaults to
+                   ``_FRONT_MATTER_KEYS_SOURCE`` so callers that do not pass
+                   the argument keep their current behaviour.
     """
     lines = ["---"]
-    for key in _FRONT_MATTER_KEYS_SOURCE:
+    for key in key_order:
         if key not in fields:
             continue
         value = fields[key]
@@ -173,18 +182,21 @@ def write_source_page(
     out_path = vault_root / wiki_path
 
     # Front matter — deterministic field order, timestamps from record (not now())
-    front_matter = _render_front_matter({
-        "id": source_id,
-        "type": "source",
-        "title": title,
-        "created": source_record.get("created_at", ""),
-        "updated": source_record.get("updated_at", ""),
-        "source_paths": [f"raw/{source_record.get('raw_path', '')}"],
-        "tags": [],
-        "entities": {"companies": [], "people": [], "concepts": []},
-        "confidence": source_record.get("credibility", 0.7),
-        "status": "active",
-    })
+    front_matter = _render_front_matter(
+        {
+            "id": source_id,
+            "type": "source",
+            "title": title,
+            "created": source_record.get("created_at", ""),
+            "updated": source_record.get("updated_at", ""),
+            "source_paths": [f"raw/{source_record.get('raw_path', '')}"],
+            "tags": [],
+            "entities": {"companies": [], "people": [], "concepts": []},
+            "confidence": source_record.get("credibility", 0.7),
+            "status": "active",
+        },
+        key_order=_FRONT_MATTER_KEYS_SOURCE,
+    )
 
     # Body — sections in article-note heading order
     lines: list[str] = []
@@ -315,18 +327,21 @@ def write_concept_page(
         return wiki_path
 
     # New page — render from scratch
-    front_matter = _render_front_matter({
-        "id": concept_id,
-        "type": "concept",
-        "title": name,
-        "created": created_at,
-        "updated": updated_at,
-        "source_paths": [],
-        "tags": [],
-        "entities": {"companies": [], "people": [], "concepts": []},
-        "confidence": 0.7,
-        "status": "active",
-    })
+    front_matter = _render_front_matter(
+        {
+            "id": concept_id,
+            "type": "concept",
+            "title": name,
+            "created": created_at,
+            "updated": updated_at,
+            "source_paths": [],
+            "tags": [],
+            "entities": {"companies": [], "people": [], "concepts": []},
+            "confidence": 0.7,
+            "status": "active",
+        },
+        key_order=_FRONT_MATTER_KEYS_CONCEPT,
+    )
 
     lines: list[str] = []
     lines.append(f"# {name}\n")
