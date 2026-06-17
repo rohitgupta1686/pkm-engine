@@ -8,11 +8,13 @@ Usage:
     pkm --help
     pkm ingest --help
     pkm ingest --new-only --raw <path>
+    pkm batch-ingest --help
+    pkm batch-ingest --new-only [--vault <path>]
 
-Security (T-03-07, T-03-09):
-    - --raw path is read as a file; no shell interpolation occurs.
+Security (T-03-07, T-03-09, T-04-01):
+    - --raw / --vault paths come from env/CLI, not untrusted web input.
     - Settings (including ANTHROPIC_API_KEY) are never printed to stdout/stderr.
-    - Only the run_ingest result dict (ids, paths, counts) is printed as JSON.
+    - Only the result dict (ids, paths, counts) is printed as JSON.
 """
 
 from __future__ import annotations
@@ -56,6 +58,32 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to the raw Markdown capture file to ingest.",
     )
 
+    # -- batch-ingest subcommand -----------------------------------------------
+    batch_parser = subparsers.add_parser(
+        "batch-ingest",
+        help="Ingest all new raw/*.md files in a vault checkout.",
+        description=(
+            "Scan raw/**/*.md in the vault and ingest each file through the "
+            "full pipeline. Re-running over an unchanged vault is a no-op "
+            "(ORCH-07 idempotency)."
+        ),
+    )
+    batch_parser.add_argument(
+        "--new-only",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip sources that have already been fully processed "
+            "(idempotent re-run protection). Recommended for normal use."
+        ),
+    )
+    batch_parser.add_argument(
+        "--vault",
+        metavar="PATH",
+        default=None,
+        help="Path to the vault root directory. Defaults to VAULT_PATH from settings.",
+    )
+
     return parser
 
 
@@ -70,6 +98,8 @@ def app() -> None:
 
     if args.subcommand == "ingest":
         _cmd_ingest(args)
+    elif args.subcommand == "batch-ingest":
+        _cmd_batch_ingest(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -129,3 +159,54 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
 
     # Print result as JSON (T-03-09: never echo Settings or api_key)
     print(json.dumps(result, indent=2))
+
+
+def _cmd_batch_ingest(args: argparse.Namespace) -> None:
+    """Execute the batch-ingest subcommand."""
+    # Late imports: keep startup fast for --help; only load heavy deps when actually ingesting.
+    from pkm.batch import batch_ingest
+    from pkm.config import Settings
+    from pkm.llm.client import LLMClient
+    from pkm.store.registry import connect
+
+    # Load settings (from .env or environment variables)
+    settings = Settings()
+
+    # Validate required settings (T-04-01: never print Settings or api_key)
+    if not settings.anthropic_api_key:
+        print(
+            "ERROR: ANTHROPIC_API_KEY is not set. "
+            "Add it to your .env file or set the environment variable.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Resolve vault root: CLI flag > settings
+    vault_root = args.vault or settings.vault_path
+    if not vault_root:
+        print(
+            "ERROR: VAULT_PATH is not set. "
+            "Add it to your .env file, set the VAULT_PATH environment variable, "
+            "or pass --vault PATH on the command line.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Set up DB and LLM client
+    conn = connect(settings)
+    llm_client = LLMClient(conn, settings.anthropic_api_key)
+
+    # Run batch ingest
+    result = batch_ingest(
+        conn=conn,
+        llm_client=llm_client,
+        vault_root=Path(vault_root),
+        new_only=args.new_only,
+    )
+
+    # Print result as JSON (T-03-09: never echo Settings or api_key)
+    print(json.dumps(result, indent=2))
+
+    # Exit non-zero if any file failed (so the workflow step surfaces failures)
+    if result["failed"] > 0:
+        sys.exit(1)
