@@ -1,0 +1,59 @@
+name: ingest
+
+on:
+  repository_dispatch:
+    types: [ingest]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: # manual trigger for testing
+
+concurrency:
+  group: ingest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout engine code
+        uses: actions/checkout@v4
+        with:
+          path: engine
+
+      - name: Checkout vault data
+        uses: actions/checkout@v4
+        with:
+          repository: rohitgupta1686/pkm-vault
+          token: ${{ secrets.VAULT_PAT }}
+          path: vault
+          persist-credentials: true
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install engine
+        run: pip install -e ./engine
+
+      - name: Run batch ingest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
+        run: pkm batch-ingest --new-only --vault "$GITHUB_WORKSPACE/vault"
+
+      - name: Commit synthesized wiki
+        working-directory: vault
+        run: |
+          git config user.name "pkm-bot"
+          git config user.email "pkm-bot@users.noreply.github.com"
+          git add wiki/ index.md log.md
+          git add dashboard.md 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "synthesize: $(date -u +%FT%TZ)"
+          git push
