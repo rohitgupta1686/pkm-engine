@@ -764,7 +764,7 @@ Every synthesized claim/edge carries `provenance: [{source_id, span}]`. `span` i
 
 ### 10.4 Tech dependencies (MVP `pyproject.toml`)
 
-`anthropic`, `pydantic`/`pydantic-settings`, `python-frontmatter`, `typer`, `fastapi`+`uvicorn`, `trafilatura`, `markdownify`, `python-ulid`, `filelock`, `pytest`. (Chroma/Neo4j/NLI deferred and import-guarded.)
+`openai` (cloud pipeline switched from `anthropic` per DECISIONS.md [T1-02], 2026-06-19; local dev may still route Anthropic models through an OpenAI-compatible endpoint via `openai_base_url`), `pydantic`/`pydantic-settings`, `python-frontmatter`, `typer`, `fastapi`+`uvicorn`, `trafilatura`, `markdownify`, `python-ulid`, `filelock`, `pytest`. (Chroma/Neo4j/NLI deferred and import-guarded.)
 
 ### 10.5 Test strategy
 
