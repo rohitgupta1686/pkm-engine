@@ -13,7 +13,7 @@ Usage:
 
 Security (T-03-07, T-03-09, T-04-01):
     - --raw / --vault paths come from env/CLI, not untrusted web input.
-    - Settings (including ANTHROPIC_API_KEY) are never printed to stdout/stderr.
+    - Settings (including OPENAI_API_KEY) are never printed to stdout/stderr.
     - Only the result dict (ids, paths, counts) is printed as JSON.
 """
 
@@ -117,9 +117,9 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
     settings = Settings()
 
     # Validate required settings
-    if not settings.anthropic_api_key:
+    if not settings.openai_api_key:
         print(
-            "ERROR: ANTHROPIC_API_KEY is not set. "
+            "ERROR: OPENAI_API_KEY is not set. "
             "Add it to your .env file or set the environment variable.",
             file=sys.stderr,
         )
@@ -145,7 +145,7 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
 
     # Set up DB and LLM client
     conn = connect(settings)
-    llm_client = LLMClient(conn, settings.anthropic_api_key)
+    llm_client = LLMClient(conn, settings.openai_api_key, settings.openai_base_url)
 
     # Run the pipeline
     result = run_ingest(
@@ -173,9 +173,9 @@ def _cmd_batch_ingest(args: argparse.Namespace) -> None:
     settings = Settings()
 
     # Validate required settings (T-04-01: never print Settings or api_key)
-    if not settings.anthropic_api_key:
+    if not settings.openai_api_key:
         print(
-            "ERROR: ANTHROPIC_API_KEY is not set. "
+            "ERROR: OPENAI_API_KEY is not set. "
             "Add it to your .env file or set the environment variable.",
             file=sys.stderr,
         )
@@ -194,14 +194,16 @@ def _cmd_batch_ingest(args: argparse.Namespace) -> None:
 
     # Set up DB and LLM client
     conn = connect(settings)
-    llm_client = LLMClient(conn, settings.anthropic_api_key)
+    llm_client = LLMClient(conn, settings.openai_api_key, settings.openai_base_url)
 
-    # Run batch ingest
+    # Run batch ingest (per-run cost/token cap from settings — T1-02 guardrail)
     result = batch_ingest(
         conn=conn,
         llm_client=llm_client,
         vault_root=Path(vault_root),
         new_only=args.new_only,
+        run_cost_cap_usd=settings.run_cost_cap_usd,
+        run_token_cap=settings.run_token_cap,
     )
 
     # Print result as JSON (T-03-09: never echo Settings or api_key)

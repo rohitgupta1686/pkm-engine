@@ -1,31 +1,127 @@
+import copy
 import datetime
 import hashlib
+import json
 import time
 import uuid
 from typing import Any
 
-import anthropic
+import openai
 from pydantic import BaseModel, ValidationError
 
-from pkm.llm.models import HAIKU, SONNET, OPUS  # noqa: F401 — imported for callers; no model strings hardcoded here
+from pkm.llm.models import MINI  # noqa: F401 — re-exported for callers
+from pkm.llm.pricing import compute_cost
+
+# OpenAI transient errors worth retrying with exponential backoff.
+_RETRYABLE = (
+    openai.RateLimitError,           # 429
+    openai.InternalServerError,       # 5xx (incl. the old Anthropic 529 "overloaded" analog)
+    openai.APIConnectionError,
+    openai.APITimeoutError,
+)
+
+# Primitive JSON schema types whose pydantic anyOf:[{type:T},{type:"null"}] can be
+# collapsed to OpenAI-strict-friendly {"type": [T, "null"]}.
+_PRIMITIVE_TYPES = {"string", "integer", "number", "boolean"}
+
+
+def _to_openai_strict_schema(schema: dict) -> dict:
+    """Transform a pydantic ``model_json_schema()`` into an OpenAI strict-compliant schema.
+
+    OpenAI strict json_schema requires, at every object level:
+      - ``additionalProperties: false``
+      - every property listed in ``required``
+    and represents nullable fields as ``{"type": [T, "null"]}`` rather than
+    pydantic's ``anyOf: [{type: T}, {type: "null"}]``.
+
+    This walks a deep copy of the schema recursively:
+      - object nodes (have ``properties``): set additionalProperties=False,
+        set required = all property names.
+      - ``anyOf: [{type: X}, {type: "null"}]`` (X primitive): collapse to
+        ``{type: [X, "null"]}``.
+      - ``anyOf`` with a non-primitive or $ref non-null branch + null: kept as
+        anyOf; the non-null branch is recursed.
+      - recurses into ``$defs`` entries, property values, and array ``items``.
+    """
+    out = copy.deepcopy(schema)
+    _strictify(out)
+    return out
+
+
+def _strictify(node: Any) -> None:
+    """In-place recursive transform (see _to_openai_strict_schema)."""
+    if isinstance(node, dict):
+        # Collapse pydantic nullable anyOf -> type:[T,"null"] where possible.
+        any_of = node.get("anyOf")
+        if isinstance(any_of, list) and len(any_of) == 2:
+            null_idx = next(
+                (i for i, s in enumerate(any_of) if isinstance(s, dict) and s.get("type") == "null"),
+                None,
+            )
+            if null_idx is not None:
+                other = any_of[1 - null_idx]
+                other_type = other.get("type") if isinstance(other, dict) else None
+                if other_type in _PRIMITIVE_TYPES:
+                    # Collapse to type:[T,"null"], preserving a description if present.
+                    collapsed: dict = {"type": [other_type, "null"]}
+                    if "description" in node:
+                        collapsed["description"] = node["description"]
+                    if "default" in node:
+                        collapsed["default"] = node["default"]
+                    node.clear()
+                    node.update(collapsed)
+                    return
+                # Non-primitive nullable: keep anyOf, recurse the non-null branch.
+                _strictify(other)
+            # else: anyOf that isn't a nullable pair — recurse each branch.
+            for s in any_of:
+                _strictify(s)
+
+        if "properties" in node and isinstance(node["properties"], dict):
+            node["additionalProperties"] = False
+            node["required"] = sorted(node["properties"].keys())
+            for value in node["properties"].values():
+                _strictify(value)
+
+        if "$defs" in node and isinstance(node["$defs"], dict):
+            for def_node in node["$defs"].values():
+                _strictify(def_node)
+
+        if "items" in node:
+            _strictify(node["items"])
+
+        # Recurse into any remaining dict values we haven't handled.
+        for key, value in node.items():
+            if key in ("properties", "$defs", "anyOf", "items"):
+                continue
+            if isinstance(value, dict):
+                _strictify(value)
+            elif isinstance(value, list):
+                for item in value:
+                    _strictify(item)
 
 
 class LLMClient:
     """
-    Wraps the Anthropic SDK with:
+    Wraps the OpenAI SDK with:
     - SHA-256 hash cache: skips API call when (agent, input_hash, status='ok') row already exists
-    - Structured output via tool-calling when output_schema is provided
+    - Structured output via response_format json_schema (strict) when output_schema is provided
     - One-shot repair-retry on ValidationError
-    - Exponential backoff on 429/529 (up to 3 attempts)
+    - Exponential backoff on 429 / 5xx / connection / timeout (up to 3 attempts)
+    - Real per-call cost_usd computed from token usage (pkm.llm.pricing)
     - agent_runs write on both success and failure paths
     """
 
-    def __init__(self, conn, api_key: str) -> None:
+    def __init__(self, conn, api_key: str, base_url: str = "https://api.openai.com/v1") -> None:
         self.conn = conn
-        self.client = anthropic.Anthropic(api_key=api_key)
+        self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
 
     def _make_input_hash(self, agent_name: str, model: str, prompt_version: str, input_text: str) -> str:
-        """SHA-256 hex digest of (agent_name + model + prompt_version + input_text)."""
+        """SHA-256 hex digest of (agent_name + model + prompt_version + input_text).
+
+        The model string is part of the cache key — changing the model busts the
+        entire cache (accepted one-time re-ingest per DECISIONS.md [T1-02]).
+        """
         return hashlib.sha256((agent_name + model + prompt_version + input_text).encode()).hexdigest()
 
     def _check_cache(self, agent_name: str, input_hash: str) -> dict | None:
@@ -91,10 +187,12 @@ class LLMClient:
         model: str,
         messages: list[dict],
         output_schema: type[BaseModel] | None,
-    ) -> tuple[object, int, int]:
+    ) -> tuple[object, int, int, int]:
         """
-        Call messages.create with exponential backoff on 429/529.
-        Returns (response, input_tokens, output_tokens).
+        Call chat.completions.create with exponential backoff on retryable errors.
+
+        Returns (response, prompt_tokens, completion_tokens, cached_tokens).
+        cached_tokens is the cached portion of prompt_tokens (0 if absent).
         """
         kwargs: dict[str, Any] = {
             "model": model,
@@ -103,24 +201,30 @@ class LLMClient:
         }
 
         if output_schema is not None:
-            tool_def = {
-                "name": "structured_output",
-                "description": f"Return output matching the {output_schema.__name__} schema",
-                "input_schema": output_schema.model_json_schema(),
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": output_schema.__name__,
+                    "strict": True,
+                    "schema": _to_openai_strict_schema(output_schema.model_json_schema()),
+                },
             }
-            kwargs["tools"] = [tool_def]
-            kwargs["tool_choice"] = {"type": "tool", "name": "structured_output"}
 
         for attempt in range(3):
             try:
-                response = self.client.messages.create(**kwargs)
-                return response, response.usage.input_tokens, response.usage.output_tokens
-            except anthropic.APIStatusError as exc:
-                if exc.status_code in (429, 529):
-                    if attempt < 2:
-                        time.sleep(2 ** attempt)
-                        continue
+                response = self.client.chat.completions.create(**kwargs)
+                usage = response.usage
+                prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+                completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+                details = getattr(usage, "prompt_tokens_details", None)
+                cached_tokens = getattr(details, "cached_tokens", None) or 0
+                return response, prompt_tokens, completion_tokens, cached_tokens
+            except _RETRYABLE:
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+                    continue
                 raise
+            # Non-retryable errors raise immediately.
 
         # Should not reach here, but satisfy type checker
         raise RuntimeError("Exhausted retries without success or raised exception")
@@ -134,61 +238,37 @@ class LLMClient:
     ) -> Any:
         """
         Extract and validate the result from the API response.
-        If output_schema is None: returns the first text block's text.
-        If output_schema is provided: extracts tool_use block, validates, and attempts
-        one repair-retry on ValidationError.
+
+        If output_schema is None: returns the message content string (text path).
+        If output_schema is provided: parses the JSON string in message.content,
+        validates it, and attempts one repair-retry on ValidationError.
         """
+        content = response.choices[0].message.content
+
         if output_schema is None:
-            for block in response.content:
-                if block.type == "text":
-                    return block.text
-            return ""
+            return content or ""
 
-        # Find the structured_output tool_use block
-        tool_block = None
-        for block in response.content:
-            if block.type == "tool_use" and block.name == "structured_output":
-                tool_block = block
-                break
-
-        raw_data = tool_block.input
+        raw_data = json.loads(content)
 
         try:
             return output_schema(**raw_data)
         except ValidationError as first_err:
-            # One repair-retry: append error feedback and retry
-            tool_def = {
-                "name": "structured_output",
-                "description": f"Return output matching the {output_schema.__name__} schema",
-                "input_schema": output_schema.model_json_schema(),
-            }
+            # One repair-retry: feed the invalid response back + a fix instruction.
             repair_messages = list(messages) + [
-                {"role": "assistant", "content": response.content},
+                {"role": "assistant", "content": content},
                 {
                     "role": "user",
                     "content": (
                         f"Your response failed schema validation: {first_err}. "
-                        "Fix it and call structured_output again."
+                        "Return ONLY a valid JSON object matching the schema. "
+                        "Do not include any text outside the JSON object."
                     ),
                 },
             ]
-            repair_response = self.client.messages.create(
-                model=model,
-                max_tokens=4096,
-                messages=repair_messages,
-                tools=[tool_def],
-                tool_choice={"type": "tool", "name": "structured_output"},
-            )
-
-            repair_block = None
-            for block in repair_response.content:
-                if block.type == "tool_use" and block.name == "structured_output":
-                    repair_block = block
-                    break
-
-            repair_data = repair_block.input
+            repair_response, _, _, _ = self._call_api(model, repair_messages, output_schema)
+            repair_content = repair_response.choices[0].message.content
             # If this also raises ValidationError, propagate — no further retries
-            return output_schema(**repair_data)
+            return output_schema(**json.loads(repair_content))
 
     def call(
         self,
@@ -215,9 +295,9 @@ class LLMClient:
         started_at = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
 
         try:
-            response, tokens_in, tokens_out = self._call_api(model, messages, output_schema)
+            response, tokens_in, tokens_out, cached_tokens = self._call_api(model, messages, output_schema)
             result = self._extract_result(response, output_schema, messages, model)
-            cost_usd = 0.0  # placeholder; exact pricing not hardcoded
+            cost_usd = compute_cost(model, tokens_in, cached_tokens, tokens_out)
             finished_at = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
             run_id = "run_" + uuid.uuid4().hex[:20]
             self._write_run(

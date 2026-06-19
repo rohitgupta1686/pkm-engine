@@ -13,7 +13,7 @@ def db_conn():
     """Create a fresh auto-migrated DB per test function using a temp directory."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         db_path = str(pathlib.Path(tmp_dir) / "test.db")
-        s = Settings(anthropic_api_key="test-key", db_path=db_path)
+        s = Settings(openai_api_key="test-key", db_path=db_path)
         conn = connect(s)
         yield conn
 

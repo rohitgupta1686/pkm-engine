@@ -15,6 +15,7 @@ import pytest
 
 from pkm.config import Settings
 from pkm.llm.client import LLMClient
+from pkm.llm.models import MINI
 from pkm.store.registry import connect
 
 
@@ -54,7 +55,7 @@ def test_auto_migration(db_conn):
 def test_idempotent_migration(tmp_path):
     """connect() called twice on the same db_path raises no exception (DATA-06)."""
     db_path = str(tmp_path / "idempotent.db")
-    s = Settings(anthropic_api_key="test-key", db_path=db_path)
+    s = Settings(openai_api_key="test-key", db_path=db_path)
 
     # First connect — migrates from scratch
     conn1 = connect(s)
@@ -107,20 +108,21 @@ def test_llm_cache_dedup(db_conn):
       (c) agent_runs has exactly 1 row
     (DATA-04)
     """
-    # Build a mock Anthropic response
+    # Build a mock OpenAI Chat Completions response
     mock_response = MagicMock()
-    mock_response.usage.input_tokens = 10
-    mock_response.usage.output_tokens = 5
-    mock_response.content = [MagicMock(type="text", text="ok")]
+    mock_response.usage.prompt_tokens = 10
+    mock_response.usage.completion_tokens = 5
+    mock_response.usage.prompt_tokens_details.cached_tokens = 0
+    mock_response.choices = [MagicMock(message=MagicMock(content="ok"))]
 
-    with patch("pkm.llm.client.anthropic.Anthropic") as mock_anthropic_cls:
-        mock_anthropic_cls.return_value.messages.create.return_value = mock_response
+    with patch("pkm.llm.client.openai.OpenAI") as mock_openai_cls:
+        mock_openai_cls.return_value.chat.completions.create.return_value = mock_response
 
         client = LLMClient(conn=db_conn, api_key="test-key")
 
         call_kwargs = dict(
             agent_name="reader_agent",
-            model="claude-haiku-4-5-20251001",
+            model=MINI,
             prompt_version="v1",
             messages=[{"role": "user", "content": "test"}],
             input_text="hello world",
@@ -132,10 +134,14 @@ def test_llm_cache_dedup(db_conn):
         result2 = client.call(**call_kwargs)
         assert result2["cached"] is True, f"Second call should be cached, got: {result2}"
 
-        api_call_count = mock_anthropic_cls.return_value.messages.create.call_count
+        api_call_count = mock_openai_cls.return_value.chat.completions.create.call_count
         assert api_call_count == 1, (
             f"API should have been called exactly once, got: {api_call_count}"
         )
 
         row_count = db_conn.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0]
         assert row_count == 1, f"agent_runs should have exactly 1 row, got: {row_count}"
+
+        # T1-02: real cost_usd must be persisted (regression for the old cost_usd=0.0 bug)
+        cost_usd = db_conn.execute("SELECT cost_usd FROM agent_runs").fetchone()[0]
+        assert cost_usd > 0.0, f"agent_runs.cost_usd should be > 0, got {cost_usd}"

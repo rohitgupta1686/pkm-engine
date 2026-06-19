@@ -6,7 +6,7 @@ You are a Concept Extractor agent. Your job is to extract atomic subject-predica
 
 # TASK
 
-Given the raw source note below, return a JSON object by calling the `structured_output` tool. The object contains:
+Given the raw source note below, return a JSON object matching the schema. Return ONLY the JSON object — do not include any text, prose, or markdown outside the JSON object. The object contains:
 - A list of all atomic SPO claims found in the source.
 - A list of concept matches mapping claims to canonical concept names.
 

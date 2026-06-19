@@ -6,7 +6,7 @@ pre-processed claim text, returning a validated KGAgentOutput instance.
 """
 
 from pkm.agents.base import BaseAgent
-from pkm.llm.models import SONNET
+from pkm.config import settings
 from pkm.schemas.agent_io import KGAgentOutput
 
 
@@ -19,7 +19,7 @@ class KGAgent(BaseAgent):
     """
 
     role = "kg_agent"
-    model = SONNET
+    model = settings.llm_model
     prompt_template = "er_extraction.v1.md"
     prompt_version = "v1"
     input_schema = None

@@ -19,11 +19,11 @@ def make_concrete_agent_class():
     """Import BaseAgent and return a valid concrete subclass."""
     from pkm.agents.base import BaseAgent
     from pkm.schemas.agent_io import SummarizerOutput
-    from pkm.llm.models import SONNET
+    from pkm.llm.models import MINI
 
     class ConcreteAgent(BaseAgent):
         role = "test_summarizer"
-        model = SONNET
+        model = MINI
         prompt_template = "summarize.v1.md"
         prompt_version = "v1"
         input_schema = None
@@ -58,12 +58,12 @@ def test_concrete_subclass_instantiation():
 def test_missing_role_raises_type_error():
     from pkm.agents.base import BaseAgent
     from pkm.schemas.agent_io import SummarizerOutput
-    from pkm.llm.models import SONNET
+    from pkm.llm.models import MINI
 
     with pytest.raises(TypeError):
         class MissingRoleAgent(BaseAgent):
             # role is intentionally omitted
-            model = SONNET
+            model = MINI
             prompt_template = "summarize.v1.md"
             prompt_version = "v1"
             input_schema = None
@@ -77,12 +77,12 @@ def test_missing_role_raises_type_error():
 
 def test_missing_output_schema_raises_type_error():
     from pkm.agents.base import BaseAgent
-    from pkm.llm.models import SONNET
+    from pkm.llm.models import MINI
 
     with pytest.raises(TypeError):
         class MissingOutputSchemaAgent(BaseAgent):
             role = "test"
-            model = SONNET
+            model = MINI
             prompt_template = "summarize.v1.md"
             prompt_version = "v1"
             input_schema = None
@@ -109,11 +109,11 @@ def test_load_prompt_returns_nonempty_string():
 def test_load_prompt_raises_for_missing_file():
     from pkm.agents.base import BaseAgent
     from pkm.schemas.agent_io import SummarizerOutput
-    from pkm.llm.models import SONNET
+    from pkm.llm.models import MINI
 
     class BadPromptAgent(BaseAgent):
         role = "bad_agent"
-        model = SONNET
+        model = MINI
         prompt_template = "nonexistent_prompt.v99.md"
         prompt_version = "v99"
         input_schema = None

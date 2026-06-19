@@ -35,7 +35,7 @@ class BaseAgent(ABC):
     Concrete subclasses declare these class-level attributes:
 
         role: ClassVar[str]                     — agent name key; used as agent_name in LLMClient.call()
-        model: ClassVar[str]                    — model string (HAIKU, SONNET, or OPUS)
+        model: ClassVar[str]                    — model string (resolved from settings.llm_model; default gpt-5.4-mini)
         prompt_template: ClassVar[str]          — filename under pkm/prompts/ (e.g. "summarize.v1.md")
         prompt_version: ClassVar[str]           — version string for cache key (e.g. "v1")
         input_schema: ClassVar[type | None]     — pydantic BaseModel or None (documentation only)

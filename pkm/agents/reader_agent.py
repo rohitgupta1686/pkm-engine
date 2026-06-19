@@ -1,7 +1,7 @@
 """
 ReaderAgent — normalizes raw captured Markdown bytes to clean Markdown with YAML front matter.
 
-Uses the HAIKU model (fast, cheap) for stateless text normalization.
+Uses the configured model (gpt-5.4-mini by default) for stateless text normalization.
 No pydantic output schema — returns cleaned Markdown text directly.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import ClassVar
 
 from pkm.agents.base import BaseAgent
-from pkm.llm.models import HAIKU
+from pkm.config import settings
 
 
 class ReaderAgent(BaseAgent):
@@ -27,7 +27,7 @@ class ReaderAgent(BaseAgent):
     """
 
     role: ClassVar[str] = "reader_agent"
-    model: ClassVar[str] = HAIKU
+    model: ClassVar[str] = settings.llm_model
     prompt_template: ClassVar[str] = "reader.v1.md"
     prompt_version: ClassVar[str] = "v1"
     input_schema: ClassVar[type | None] = None

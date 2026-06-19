@@ -75,7 +75,7 @@ def empty_vault(tmp_path):
 @pytest.fixture
 def db_conn():
     """Auto-migrated in-memory DB for testing."""
-    s = Settings(anthropic_api_key="test-key", db_path=":memory:")
+    s = Settings(openai_api_key="test-key", db_path=":memory:")
     conn = connect(s)
     yield conn
 

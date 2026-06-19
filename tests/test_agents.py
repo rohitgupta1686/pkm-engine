@@ -23,7 +23,7 @@ from pkm.agents.concept_extractor import ConceptExtractor
 from pkm.agents.kg_agent import KGAgent
 from pkm.agents.reader_agent import ReaderAgent
 from pkm.agents.summarizer_agent import SummarizerAgent
-from pkm.llm.models import SONNET
+from pkm.llm.models import MINI
 from pkm.schemas.agent_io import ConceptExtractorOutput, KGAgentOutput, SummarizerOutput
 
 # ---------------------------------------------------------------------------
@@ -206,32 +206,34 @@ class TestSummarizerAgent:
 
         llm_client = LLMClient(db_conn, api_key="test-key")
 
-        malformed_content = MagicMock()
-        malformed_content.type = "tool_use"
-        malformed_content.name = "structured_output"
-        malformed_content.input = {"bad_field": "wrong"}
+        malformed_choice = MagicMock()
+        malformed_choice.message.content = '{"bad_field": "wrong"}'
 
         fake_response = MagicMock()
-        fake_response.usage.input_tokens = 5
-        fake_response.usage.output_tokens = 5
-        fake_response.content = [malformed_content]
+        fake_response.usage.prompt_tokens = 5
+        fake_response.usage.completion_tokens = 5
+        fake_response.usage.prompt_tokens_details.cached_tokens = 0
+        fake_response.choices = [malformed_choice]
 
-        with patch("pkm.llm.client.anthropic.Anthropic") as MockAnthropic:
-            mock_instance = MockAnthropic.return_value
-            mock_instance.messages.create.return_value = fake_response
+        with patch("pkm.llm.client.openai.OpenAI") as MockOpenAI:
+            mock_instance = MockOpenAI.return_value
+            mock_instance.chat.completions.create.return_value = fake_response
 
-            # Re-create LLMClient so it uses the patched Anthropic
+            # Re-create LLMClient so it uses the patched OpenAI client
             patched_client = LLMClient(db_conn, api_key="test-key")
 
             with pytest.raises(pydantic.ValidationError):
                 patched_client.call(
                     agent_name="summarizer_agent",
-                    model=SONNET,
+                    model=MINI,
                     prompt_version="v1",
                     messages=[{"role": "user", "content": "test"}],
                     input_text="test",
                     output_schema=SummarizerOutput,
                 )
+
+            # Initial call + one repair-retry = exactly 2 API calls
+            assert mock_instance.chat.completions.create.call_count == 2
 
 
 class TestConceptExtractor:

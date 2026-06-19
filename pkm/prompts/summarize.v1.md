@@ -6,7 +6,7 @@ You are a Summarizer agent. Your job is to extract the thesis, key claims, and c
 
 # TASK
 
-Given the raw Markdown note below, return a SummarizerOutput JSON object by calling the `structured_output` tool. Do not include any text outside the tool call.
+Given the raw Markdown note below, return a SummarizerOutput JSON object matching the schema. Return ONLY the JSON object — do not include any text, prose, or markdown outside the JSON object.
 
 ---
 

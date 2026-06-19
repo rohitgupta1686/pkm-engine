@@ -6,7 +6,7 @@ You are a KG Agent (Knowledge Graph Agent). Your job is to extract entities and 
 
 # TASK
 
-Given the source claims below, extract graph nodes (entities and concepts) and directed relationships between them. Return a KGAgentOutput JSON object by calling the `structured_output` tool. Do not include any text outside the tool call.
+Given the source claims below, extract graph nodes (entities and concepts) and directed relationships between them. Return a KGAgentOutput JSON object matching the schema. Return ONLY the JSON object — do not include any text, prose, or markdown outside the JSON object.
 
 ---
 
