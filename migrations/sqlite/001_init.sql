@@ -1,4 +1,7 @@
-PRAGMA journal_mode = WAL;
+-- NOTE: `PRAGMA journal_mode = WAL;` is intentionally omitted. Turso/Hrana rejects it
+-- ("SQL not allowed statement") and libsql's executescript then silently aborts the
+-- whole migration batch — leaving zero tables created (discovered by 04-03 live run).
+-- Turso manages its own storage/journal mode; local SQLite defaults are fine for tests.
 PRAGMA foreign_keys = ON;
 
 -- One row per ingested source artifact.
