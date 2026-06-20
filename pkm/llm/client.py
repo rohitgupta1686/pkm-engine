@@ -25,6 +25,36 @@ _RETRYABLE = (
 _PRIMITIVE_TYPES = {"string", "integer", "number", "boolean"}
 
 
+def _inline_refs(schema: dict) -> dict:
+    """Resolve every ``$ref`` to a ``$defs`` entry in place, then drop ``$defs``.
+
+    Returns a fully self-contained schema with no ``$ref``/``$defs``. OpenAI
+    strict mode validates ``$defs`` entries against the root context in some
+    cases (it reported GraphNode's ``required`` as "extra required keys" at
+    context=()), so inlining refs sidesteps that entirely. Cycles are guarded
+    with a visited set; our agent schemas are acyclic, but the guard prevents
+    infinite recursion on a self-referential model.
+    """
+    out = copy.deepcopy(schema)
+    defs = out.pop("$defs", {})
+
+    def resolve(node: Any, visiting: set[str]) -> Any:
+        if isinstance(node, dict):
+            if "$ref" in node:
+                name = node["$ref"].rsplit("/", 1)[-1]
+                if name in visiting:
+                    # Cycle: leave a minimal object rather than loop forever.
+                    return {"type": "object", "additionalProperties": False}
+                target = copy.deepcopy(defs.get(name, {}))
+                return resolve(target, visiting | {name})
+            return {k: resolve(v, visiting) for k, v in node.items()}
+        if isinstance(node, list):
+            return [resolve(i, visiting) for i in node]
+        return node
+
+    return resolve(out, set())
+
+
 def _to_openai_strict_schema(schema: dict) -> dict:
     """Transform a pydantic ``model_json_schema()`` into an OpenAI strict-compliant schema.
 
@@ -43,7 +73,7 @@ def _to_openai_strict_schema(schema: dict) -> dict:
         anyOf; the non-null branch is recursed.
       - recurses into ``$defs`` entries, property values, and array ``items``.
     """
-    out = copy.deepcopy(schema)
+    out = _inline_refs(schema)
     _strictify(out)
     return out
 
