@@ -11,6 +11,44 @@ Logged autonomously during execution. These are reversible — rework < 1 day.
 
 ---
 
+## Phase 5 — Capture Worker
+
+**[T2-05-01] Q1 — R2 offload for >200K text.** Keep the FULL text in the `raw/` body
+AND mirror a copy to R2 when `text.length > 200_000`, storing the `r2key` in the
+`raw/` front matter. The body is **NEVER reduced to a pointer**. Rationale: the
+ingest pipeline (`pkm/pipeline/ingest.py::run_ingest`) cannot read R2 and synthesizes
+from `raw_text` read out of the `raw/*.md` body — a pointer body would make the LLM
+summarize "[blob in R2: ...]". The R2 mirror is belt-and-suspenders that sets up a
+future "pipeline fetches R2" path. Tradeoff: Git still holds >200K text at MVP scale
+(rare; Git handles text well). Reversible: a future phase can teach the pipeline to
+fetch from R2 and reduce the body. Cross-ref `05-RESEARCH.md` Pitfall 6.
+
+---
+
+**[T2-05-02] Q2 — single fine-grained PAT scoped to `contents:write` on BOTH
+`pkm-vault` (commit `raw/`) AND `pkm-engine` (fire `repository_dispatch`).** Stored as
+one Worker Secret `GH_PAT` via `wrangler secret put`. Rationale: firing
+`repository_dispatch` against `pkm-engine` requires `contents:write` on
+`pkm-engine`; the **PKM Cloud Architecture doc §11 only mentions the `pkm-vault`
+scope**, which would **403 the dispatch** silently. The README corrects this and
+scopes the PAT to both repos. Tradeoff: one token has broader scope than two
+isolated tokens (a single compromise touches both repos). Reversible: split into
+`VAULT_PAT` + `ENGINE_PAT` any time. `X-PKM-Key` is a separate Worker Secret
+(authentication, not GitHub) — see `wrangler.toml`.
+
+---
+
+**[T2-05-03] Q3 — re-clip of an existing `raw/` path.** The Worker does GET-then-PUT;
+on an existing path (GET 200) it skips the PUT commit (200 no-op for the commit
+step) BUT still fires `repository_dispatch(event_type:"ingest")`. Rationale: gives a
+manual re-trigger path from the clipper (re-run the pipeline on a source without
+re-clipping the text); downstream pipeline dedups via the `sha256(raw_text)` cache
+(ORCH-07 → 0 LLM calls, 0 new rows). Tradeoff: a few GitHub Actions minutes per
+re-clip even when nothing changes. Reversible: could suppress the dispatch on a
+no-op commit.
+
+---
+
 ### Phase 3 — Vault Scaffold (03-01)
 
 **Decision:** Build-plan prose maps to DB claims.status value `candidate` — the
