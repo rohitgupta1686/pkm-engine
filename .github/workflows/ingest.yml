@@ -41,6 +41,12 @@ jobs:
       - name: Install engine
         run: pip install -e ./engine
 
+      - name: DIAG dump strict schema (temporary)
+        working-directory: engine
+        run: |
+          python -c "import pydantic; print('pydantic', pydantic.VERSION)"
+          python -c "from pkm.schemas.agent_io import KGAgentOutput; from pkm.llm.client import _to_openai_strict_schema; import json; print('SCHEMA_DUMP_START'); print(json.dumps(_to_openai_strict_schema(KGAgentOutput.model_json_schema()))); print('SCHEMA_DUMP_END')"
+
       - name: Run batch ingest
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
