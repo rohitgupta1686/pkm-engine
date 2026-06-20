@@ -183,6 +183,84 @@ def _build_multi_agent_mock(conn) -> MagicMock:
     return mock_client
 
 
+def _build_positional_chunk_id_mock(conn) -> MagicMock:
+    """Like _build_multi_agent_mock but the LLM emits POSITIONAL chunk_id labels
+    ("para_1", "section_body") — the real-world case the prompts instruct the
+    model to use, since it cannot see the deterministic chk_<hash>_NNN ids.
+
+    Regression guard for the 05-03 live bug: positional labels are not real
+    chunks.ids, so claims.chunk_id (hard FK to chunks(id)) would crash ingest
+    unless run_ingest maps them via _resolve_claim_chunk_id before insert.
+    """
+    from pkm.ingest.hashing import sha256_content, chunk_id
+
+    raw_text = _load_raw_text()
+    content_hash = sha256_content(raw_text)
+    first_chunk_id = chunk_id(content_hash[:12], 0)
+
+    # Summarizer emits "para_1" (maps to ordinal 0 -> first chunk id).
+    summarizer_result = _make_summarizer_output("para_1")
+    # Extractor wins the persisted-claims path when present, so emit BOTH a
+    # mappable label ("para_1" -> first chunk id) and an unmappable one
+    # ("section_body" -> NULL) to exercise both branches of the resolver.
+    extractor_result = ConceptExtractorOutput(
+        claims=[
+            KeyClaim(
+                statement="Operating leverage amplifies profit growth when fixed costs are covered.",
+                subject="operating leverage",
+                predicate="amplifies",
+                object="profit growth",
+                claim_type="causal",
+                chunk_id="para_1",
+                confidence=0.87,
+            ),
+            KeyClaim(
+                statement="Managers of high-leverage businesses obsess over churn and retention.",
+                subject="managers",
+                predicate="obsess over",
+                object="churn and retention",
+                claim_type="fact",
+                chunk_id="section_body",
+                confidence=0.7,
+            ),
+        ],
+        concept_matches=[
+            ConceptMatch(concept_name="Operating Leverage", claim_indices=[0], confidence=0.92),
+        ],
+    )
+    kg_result = _make_kg_output()
+
+    results_by_agent = {
+        "reader_agent": raw_text,
+        "summarizer_agent": summarizer_result,
+        "concept_extractor": extractor_result,
+        "kg_agent": kg_result,
+    }
+
+    mock_client = MagicMock()
+
+    def _mock_call(**kwargs):
+        agent_name = kwargs.get("agent_name", "unknown_agent")
+        run_id = "run_" + uuid.uuid4().hex[:20]
+        now = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
+        source_id = kwargs.get("source_id")
+        conn.execute(
+            "INSERT OR REPLACE INTO agent_runs "
+            "(id, agent, source_id, input_hash, model, "
+            "tokens_in, tokens_out, cost_usd, status, error, started_at, finished_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run_id, agent_name, source_id, "pos_hash_" + agent_name[:8],
+             "mock_model", 10, 20, 0.0, "ok", None, now, now),
+        )
+        conn.commit()
+        return {"cached": False, "input_hash": "pos_hash_" + agent_name[:8],
+                "result": results_by_agent.get(agent_name, ""),
+                "tokens_in": 10, "tokens_out": 20}
+
+    mock_client.call.side_effect = _mock_call
+    return mock_client, first_chunk_id
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -269,6 +347,66 @@ class TestIngestFullChain:
         assert log_path.exists(), "log.md not created"
         log_lines = [l for l in log_path.read_text(encoding="utf-8").splitlines() if l.strip()]
         assert len(log_lines) == 1, f"Expected 1 log line, got {len(log_lines)}: {log_lines}"
+
+
+class TestPositionalChunkIdFK:
+    """Regression guard for the 05-03 live bug: the LLM emits positional
+    chunk_id labels ("para_1", "section_body") that are not real chunks.ids, so
+    claims.chunk_id (hard FK to chunks(id)) crashes ingest unless run_ingest
+    resolves them to a real id (or NULL) before insert.
+    """
+
+    def test_positional_chunk_ids_do_not_crash_ingest(self, db_conn, tmp_path):
+        raw_text = _load_raw_text()
+        vault_root = tmp_path / "vault"
+        vault_root.mkdir()
+        (vault_root / "wiki" / "sources").mkdir(parents=True)
+        (vault_root / "wiki" / "concepts").mkdir(parents=True)
+
+        mock_llm, first_chunk_id = _build_positional_chunk_id_mock(db_conn)
+
+        # Must NOT raise FOREIGN KEY constraint failed.
+        result = run_ingest(
+            conn=db_conn,
+            llm_client=mock_llm,
+            vault_root=vault_root,
+            raw_text=raw_text,
+            raw_path="raw/2026/06/e2e_positional.md",
+            new_only=True,
+        )
+
+        source_id = result["source_id"]
+        assert result["deduped"] is False
+        assert result["n_claims"] >= 1
+
+        # The summarizer's "para_1" claims must have been mapped to the real
+        # first chunk id (para_1 -> ordinal 0 -> chk_<hash>_000).
+        para_claims = db_conn.execute(
+            "SELECT chunk_id FROM claims WHERE source_id = ? AND chunk_id IS NOT NULL",
+            (source_id,),
+        ).fetchall()
+        assert len(para_claims) >= 1, "expected at least one claim with a resolved chunk_id"
+        for (cid,) in para_claims:
+            assert cid == first_chunk_id, (
+                f"para_1 should map to first chunk id {first_chunk_id!r}, got {cid!r}"
+            )
+
+        # The extractor's "section_body" claim (unmappable) must be NULL, not a
+        # dangling label that would violate the FK.
+        null_claims = db_conn.execute(
+            "SELECT COUNT(*) FROM claims WHERE source_id = ? AND chunk_id IS NULL",
+            (source_id,),
+        ).fetchone()[0]
+        assert null_claims >= 1, "expected the unmappable 'section_body' claim to be stored as NULL"
+
+        # No claim may carry a raw positional label (would mean the FK is
+        # unsatisfied / enforcement somehow off).
+        dangling = db_conn.execute(
+            "SELECT COUNT(*) FROM claims WHERE source_id = ? "
+            "AND chunk_id NOT IN (SELECT id FROM chunks) AND chunk_id IS NOT NULL",
+            (source_id,),
+        ).fetchone()[0]
+        assert dangling == 0, f"{dangling} claims have a chunk_id that is not a real chunks.id"
 
 
 class TestIngestRerUnIsNoop:

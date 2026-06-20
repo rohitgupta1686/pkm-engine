@@ -25,6 +25,7 @@ Security (T-03-07, T-03-08, T-03-09):
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -133,6 +134,48 @@ def _parse_field_from_front_matter(raw_text: str, field: str) -> str | None:
         if stripped.startswith(prefix):
             value = stripped[len(prefix):].strip().strip('"').strip("'")
             return value if value else None
+    return None
+
+
+# Matches positional paragraph labels the LLM emits for claim provenance, e.g.
+# "para_1", "para_2". The LLM cannot know the deterministic chk_<hash>_NNN ids.
+_PARA_RE = re.compile(r"^para_(\d+)$")
+
+
+def _resolve_claim_chunk_id(
+    raw: str | None,
+    valid_chunk_ids: set[str],
+    ordinal_to_chunk_id: dict[int, str],
+) -> str | None:
+    """Map an LLM-emitted claim chunk_id to a real chunks.id, else None.
+
+    claims.chunk_id has a hard FK to chunks(id) (AD-6). The summarizer /
+    extractor prompts instruct the model to emit positional labels ("para_1")
+    or the "null" sentinel because it cannot see the deterministic chunk ids.
+    Any non-null value that isn't a real chunks.id would crash ingest on the FK
+    (05-03 live bug). Resolve BEFORE insert so the FK contract is always
+    satisfied:
+
+      - None / "null" sentinel -> None  (nullable FK satisfied; registry.py
+                                          also coerces "null"->None, this is
+                                          defense-in-depth at the call site)
+      - a real chunks.id       -> kept verbatim
+      - "para_N"               -> ordinal N-1's chunk id when in range,
+                                  else None (provenance best-effort; chunks are
+                                  ~1200-token windows, not paragraphs, so the
+                                  mapping is heuristic — see DECISIONS T2-05-04)
+      - anything else          -> None
+    """
+    if raw is None or not isinstance(raw, str):
+        return None
+    if raw == "null":
+        return None
+    if raw in valid_chunk_ids:
+        return raw
+    m = _PARA_RE.match(raw)
+    if m:
+        ordinal = int(m.group(1)) - 1  # para_1 -> ordinal 0
+        return ordinal_to_chunk_id.get(ordinal)
     return None
 
 
@@ -297,10 +340,18 @@ def run_ingest(
         else:
             claims_list = []
 
+        # Real chunk ids inserted above; used to validate/map LLM provenance
+        # labels (positional "para_N" or "null") to a chunks.id that satisfies
+        # the claims.chunk_id FK. See _resolve_claim_chunk_id (05-03 fix).
+        valid_chunk_ids = set(ordinal_to_chunk_id.values())
+
         for claim in claims_list:
+            resolved_chunk_id = _resolve_claim_chunk_id(
+                claim.chunk_id, valid_chunk_ids, ordinal_to_chunk_id
+            )
             claim_row = {
                 "source_id": source_id,
-                "chunk_id": claim.chunk_id,
+                "chunk_id": resolved_chunk_id,
                 "statement": claim.statement,
                 "subject": claim.subject,
                 "predicate": claim.predicate,
@@ -314,7 +365,7 @@ def run_ingest(
             persisted_claims.append({
                 "id": claim_id_str,
                 "statement": claim.statement,
-                "chunk_id": claim.chunk_id,
+                "chunk_id": resolved_chunk_id,
             })
 
         # Collect concept names from extractor output

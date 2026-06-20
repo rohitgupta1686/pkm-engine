@@ -47,6 +47,28 @@ re-clipping the text); downstream pipeline dedups via the `sha256(raw_text)` cac
 re-clip even when nothing changes. Reversible: could suppress the dispatch on a
 no-op commit.
 
+**[T2-05-04] Claim chunk_id FK — map LLM positional labels to real chunks.ids.**
+The summarizer/extractor prompts instruct the LLM to emit positional chunk_id
+labels ("para_1", "section_body") or the "null" sentinel, because the model
+cannot see the deterministic `chk_<hash>_NNN` chunk ids. `claims.chunk_id` has a
+hard FK to `chunks(id)` (AD-6), so any non-null value that isn't a real
+`chunks.id` crashes `batch_ingest` on the FK — found in the 05-03 live run
+(nondeterministic: only fails when the LLM emits a positional label, not
+"null"). `run_ingest` now resolves every claim's `chunk_id` via
+`_resolve_claim_chunk_id` before insert: a real `chunks.id` is kept; `para_N`
+maps to ordinal `N-1`'s chunk id when in range; everything else (including
+"null") becomes SQL NULL. Rationale (vs the alternative of dropping the FK):
+keeps the provenance contract and the existing
+`test_claim_null_chunk_id_sentinel_satisfies_fk` invariant ("a bogus real
+chunk_id must still be rejected") intact, with no schema migration. Tradeoff:
+the `para_N → ordinal` mapping is heuristic (chunks are ~1200-token windows, not
+paragraphs), so provenance is best-effort and some claims land on NULL. The
+drop-FK alternative (free-text provenance, richest signal) is deferred to MVP
+review as a Type-1 contract change. Reversible: pure ingest-code change, no
+migration; re-ingest repopulates `claims.chunk_id`.
+
+---
+
 ---
 
 ### Phase 3 — Vault Scaffold (03-01)
