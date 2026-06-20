@@ -44,7 +44,11 @@ jobs:
       - name: Run batch ingest
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          # OPENAI_BASE_URL intentionally NOT set here: when the secret is absent
+          # GitHub resolves it to "", which pydantic-settings uses to override the
+          # config default and breaks the OpenAI SDK with APIConnectionError.
+          # Cloud run uses the direct OpenAI endpoint via config.py default; base_url
+          # override (CLIProxyAPI) is for local dev only. See 04-03 verification.
           PKM_RUN_COST_CAP_USD: "0.50"
           PKM_RUN_TOKEN_CAP: "200000"
           TURSO_URL: ${{ secrets.TURSO_URL }}
