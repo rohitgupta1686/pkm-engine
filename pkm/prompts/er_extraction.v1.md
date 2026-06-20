@@ -32,7 +32,8 @@ Return a JSON object matching the KGAgentOutput schema:
                                "Region", "Organization".
           name (str):          Canonical display name for the entity (e.g., "TSMC",
                                "Operating Leverage", "Jensen Huang").
-          properties (dict):   Optional additional structured properties. Empty dict if none.
+          attributes (dict):  Optional additional structured attributes (string -> string).
+                               Example: {"ticker": "TSM"}. Empty dict if none.
           confidence (float):  Confidence in [0.0, 1.0] that this entity is correctly
                                identified and typed.
           provenance (list[str]): Source references in "src_id#chunk_id" format.
@@ -93,7 +94,7 @@ Expected output shape (placeholder values — illustrative only):
           "id": "ent_company_tsmc",
           "label": "Company",
           "name": "TSMC",
-          "properties": {"ticker": "TSM"},
+          "attributes": {"ticker": "TSM"},
           "confidence": 0.98,
           "provenance": ["src_tsmc_q3_2025#para_1"]
         },
@@ -101,7 +102,7 @@ Expected output shape (placeholder values — illustrative only):
           "id": "ent_metric_gross_margin",
           "label": "Metric",
           "name": "Gross Margin",
-          "properties": {},
+          "attributes": {},
           "confidence": 0.95,
           "provenance": ["src_tsmc_q3_2025#para_1"]
         },
@@ -109,7 +110,7 @@ Expected output shape (placeholder values — illustrative only):
           "id": "ent_product_n3",
           "label": "Product",
           "name": "N3 Process Node",
-          "properties": {},
+          "attributes": {},
           "confidence": 0.90,
           "provenance": ["src_tsmc_q3_2025#para_1"]
         }

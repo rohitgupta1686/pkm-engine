@@ -24,7 +24,10 @@ class GraphNode(BaseModel):
     id: str
     label: str
     name: str
-    properties: dict[str, str] = {}
+    # Named `attributes` (not `properties`) to avoid colliding with the JSON
+    # Schema "properties" keyword: OpenAI strict mode rejects a field named
+    # "properties" ("Extra required key 'properties' supplied"). See 04-03.
+    attributes: dict[str, str] = {}
     confidence: float = Field(ge=0, le=1)
     provenance: list[str]
 
