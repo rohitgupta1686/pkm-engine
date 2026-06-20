@@ -16,7 +16,7 @@ import pytest
 from pkm.config import Settings
 from pkm.llm.client import LLMClient
 from pkm.llm.models import MINI
-from pkm.store.registry import connect
+from pkm.store.registry import connect, insert_claim
 
 
 # ---------------------------------------------------------------------------
@@ -145,3 +145,58 @@ def test_llm_cache_dedup(db_conn):
         # T1-02: real cost_usd must be persisted (regression for the old cost_usd=0.0 bug)
         cost_usd = db_conn.execute("SELECT cost_usd FROM agent_runs").fetchone()[0]
         assert cost_usd > 0.0, f"agent_runs.cost_usd should be > 0, got {cost_usd}"
+
+
+def test_claim_null_chunk_id_sentinel_satisfies_fk(db_conn):
+    """claims.chunk_id has an FK to chunks(id). The agent layer uses the string
+    "null" as the sentinel for untraceable claims (Phase-2 contract). Storing the
+    literal "null" string violates the FK on FK-enforcing DBs (Turso; libsql local
+    also enforces FKs by default), crashing batch_ingest — found in 05-03 live
+    deploy. insert_claim must normalize the "null" sentinel to SQL NULL so the
+    nullable FK is satisfied, while a bogus real chunk_id must still be rejected.
+    """
+    _insert_source(db_conn, "src_fk_test_01", "hash_fk_test_01", "raw/fk.md")
+
+    # The "null" sentinel must NOT raise — normalized to NULL, FK skipped.
+    claim_id = insert_claim(
+        db_conn,
+        {
+            "source_id": "src_fk_test_01",
+            "chunk_id": "null",
+            "statement": "untraceable claim",
+            "created_at": "2026-01-01T00:00:00Z",
+        },
+        commit=True,
+    )
+
+    # Stored value must be SQL NULL, not the string "null".
+    stored = db_conn.execute(
+        "SELECT chunk_id FROM claims WHERE id = ?", (claim_id,)
+    ).fetchone()[0]
+    assert stored is None, f"expected NULL chunk_id, got {stored!r}"
+
+    # None must also be accepted directly.
+    insert_claim(
+        db_conn,
+        {
+            "source_id": "src_fk_test_01",
+            "chunk_id": None,
+            "statement": "explicit null",
+            "created_at": "2026-01-01T00:00:00Z",
+        },
+        commit=True,
+    )
+
+    # A bogus REAL chunk_id (not the sentinel) must still be rejected by the FK,
+    # proving enforcement is intact and only the sentinel is normalized.
+    with pytest.raises(Exception, match="FOREIGN KEY"):
+        insert_claim(
+            db_conn,
+            {
+                "source_id": "src_fk_test_01",
+                "chunk_id": "chk_bogus_nonexistent",
+                "statement": "bad ref",
+                "created_at": "2026-01-01T00:00:00Z",
+            },
+            commit=True,
+        )

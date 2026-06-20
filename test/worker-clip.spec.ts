@@ -10,43 +10,62 @@ import { exports, env } from "cloudflare:workers";
 import { reset } from "cloudflare:test";
 
 const ORIG_FETCH = globalThis.fetch;
+const EXPECTED_UA = "pkm-clip-worker";
 
 interface PutRecord {
   url: string;
   body: { message: string; content: string; sha?: string };
   auth: string;
+  ua: string;
 }
 interface DispatchRecord {
   url: string;
   body: { event_type: string; client_payload: { path: string } };
   auth: string;
+  ua: string;
 }
 
-// GitHub Contents API + dispatch mock. getSequence controls successive GET /contents
-// responses (404 = new path, 200 = already exists -> dedup branch).
+// GitHub Contents API + dispatch mock. PATH-AWARE: a PUT records the committed path
+// in a Set, and a later GET for that same path returns 200 (exists -> dedup branch).
+// This faithfully models the real GitHub Contents API + the Worker's content-addressed
+// path, so identical content -> identical path -> second GET naturally 200s. The earlier
+// getSequence:[404,200] hardcode masked the timestamp-in-path dedup bug (05-03 live deploy).
 class GhMock {
   putCalls: PutRecord[] = [];
   dispatchCalls: DispatchRecord[] = [];
   getCalls = 0;
-  private getSequence: number[];
-  constructor(getSequence: number[] = [404]) {
-    this.getSequence = [...getSequence];
+  getUAs: string[] = [];
+  committedPaths = new Set<string>();
+
+  private extractPath(url: string): string {
+    // url forms: .../contents/<path>?ref=main  (GET)  or  .../contents/<path>  (PUT)
+    const idx = url.indexOf("/contents/");
+    let p = idx >= 0 ? url.slice(idx + "/contents/".length) : url;
+    const q = p.indexOf("?");
+    if (q >= 0) p = p.slice(0, q);
+    return decodeURIComponent(p);
   }
+
   fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : (input as URL).url ?? (input as Request).url;
     const method = ((init?.method as string) || "GET").toUpperCase();
     const headers: Record<string, string> = (init?.headers as Record<string, string>) || {};
+    const ua = headers["User-Agent"] || headers["user-agent"] || "";
 
     if (url.includes("/contents/") && method === "GET") {
       this.getCalls += 1;
-      const status = this.getSequence.shift() ?? 404;
-      return new Response("{}", { status });
+      this.getUAs.push(ua);
+      const exists = this.committedPaths.has(this.extractPath(url));
+      return new Response("{}", { status: exists ? 200 : 404 });
     }
     if (url.includes("/contents/") && method === "PUT") {
+      const path = this.extractPath(url);
+      this.committedPaths.add(path);
       this.putCalls.push({
         url,
         body: init?.body ? JSON.parse(init.body as string) : ({} as any),
         auth: headers.Authorization || headers.authorization || "",
+        ua,
       });
       return new Response('{"commit":{"sha":"abc"}}', {
         status: 201,
@@ -58,6 +77,7 @@ class GhMock {
         url,
         body: init?.body ? JSON.parse(init.body as string) : ({} as any),
         auth: headers.Authorization || headers.authorization || "",
+        ua,
       });
       return new Response(null, { status: 204 });
     }
@@ -110,7 +130,7 @@ describe("worker-clip", () => {
     expect(mock.dispatchCalls.length).toBe(0);
   });
 
-  it("200 on valid POST: path matches raw/<ts>__<src>__<title>__<hash6>.md and GitHub GET called (CLIP-01)", async () => {
+  it("200 on valid POST: path is content-addressed raw/<src>__<title>__<32hex>.md (NO timestamp), GitHub GET + User-Agent present (CLIP-01)", async () => {
     const r = await exports.default.fetch(
       clipReq(
         { url: "https://example.com/page", type: "Article", text: "hello world body", title: "My Title" },
@@ -120,8 +140,13 @@ describe("worker-clip", () => {
     expect(r.status).toBe(200);
     const body = await r.json() as { ok: boolean; path: string; deduped: boolean };
     expect(body.ok).toBe(true);
-    expect(body.path).toMatch(/^raw\/\d{8}T\d{4}Z__[a-z0-9-]+__[a-z0-9-]+__[0-9a-f]{6}\.md$/);
+    // Content-addressed: NO timestamp segment, 32-hex (128-bit) content key. This is the
+    // contract that makes re-clip dedup work — a timestamp here would be a regression.
+    expect(body.path).toMatch(/^raw\/[a-z0-9-]+__[a-z0-9-]+__[0-9a-f]{32}\.md$/);
     expect(mock.getCalls).toBe(1); // GitHub GET contents was called
+    // GitHub requires a User-Agent; the Worker must send one on every GitHub request
+    // (05-03 live deploy: missing UA -> GitHub 403 "Request forbidden by administrative rules").
+    expect(mock.getUAs[0]).toBe(EXPECTED_UA);
   });
 
   it("405 on GET (non-POST/OPTIONS)", async () => {
@@ -202,11 +227,11 @@ describe("worker-clip", () => {
     expect(decoded).toContain(text); // body has full text
   });
 
-  it("idempotent re-clip (MVP-02/Q3): PUT once across two clips, dispatch twice, deduped:true on 2nd", async () => {
-    // getSequence: first clip GET -> 404 (create), second clip GET -> 200 (exists -> dedup).
-    mock = new GhMock([404, 200]);
-    globalThis.fetch = mock.fetch as any;
-
+  it("idempotent re-clip (MVP-02/Q3): same content -> same path -> 2nd GET 200 -> deduped:true, PUT once, dispatch twice, no R2 orphan", async () => {
+    // No hardcoded getSequence: the path-aware mock returns 200 on the second GET
+    // because the SAME content yields the SAME content-addressed path, which the
+    // first clip's PUT recorded. A timestamp in the path would make the paths differ
+    // and the second GET would 404 -> this test would FAIL (it did, pre-fix).
     const payload = { url: "https://example.com/same", type: "Article", text: "same body content", title: "Same Title" };
     const r1 = await exports.default.fetch(clipReq(payload, { "X-PKM-Key": "test-shared-secret" }));
     const b1 = await r1.json() as { deduped: boolean; path: string };
@@ -217,11 +242,32 @@ describe("worker-clip", () => {
     const b2 = await r2.json() as { deduped: boolean; path: string };
     expect(r2.status).toBe(200);
     expect(b2.deduped).toBe(true);
+    // Same content-addressed path on both clips (this is the whole point).
+    expect(b2.path).toBe(b1.path);
 
-    // PUT called exactly once across both clips.
+    // PUT called exactly once across both clips; the deduped clip did not rebuild.
     expect(mock.putCalls.length).toBe(1);
     // Dispatch fired on BOTH clips (Q3: skip-commit-still-dispatch).
     expect(mock.dispatchCalls.length).toBe(2);
+    // Every GitHub request carried the required User-Agent.
+    expect(mock.putCalls[0].ua).toBe(EXPECTED_UA);
+    expect(mock.dispatchCalls.every((d) => d.ua === EXPECTED_UA)).toBe(true);
+
+    // R2-after-dedup guard (05-03 defect #3): the deduped clip must not orphan an R2
+    // blob even for >200K content. Verify with a large re-clip below in its own test.
+  });
+
+  it("R2-after-dedup (05-03 defect #3): a >200K re-clip is deduped and does NOT orphan a second R2 blob", async () => {
+    const big = "Z".repeat(200_001);
+    const payload = { url: "https://example.com/rebig", type: "Article", text: big, title: "Rebig" };
+    const r1 = await exports.default.fetch(clipReq(payload, { "X-PKM-Key": "test-shared-secret" }));
+    expect((await r1.json() as { deduped: boolean }).deduped).toBe(false);
+    expect((await env.RAW_BUCKET.list()).objects.length).toBe(1);
+
+    const r2 = await exports.default.fetch(clipReq(payload, { "X-PKM-Key": "test-shared-secret" }));
+    expect((await r2.json() as { deduped: boolean }).deduped).toBe(true);
+    // Only the first clip's blob exists — the deduped re-clip did not put to R2.
+    expect((await env.RAW_BUCKET.list()).objects.length).toBe(1);
   });
 
   it("dispatch contract (CLIP-05): POST /dispatches body has event_type === ingest and client_payload.path === committed path", async () => {

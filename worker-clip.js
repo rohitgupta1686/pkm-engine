@@ -68,21 +68,48 @@ function yamlScalar(s) {
     : str;
 }
 
-async function buildRawFile({ url, type, title, text, r2key }) {
-  // 6-char content hash for the filename (bookkeeping dedup; NOT pipeline dedup,
-  // which is sha256 of the ENTIRE file). Matches the established fixture hash6 (e.g. 9709e6).
-  const hash6 = (await sha256Hex(text || url || "")).slice(0, 6);
-  // UTC timestamp with NO hyphens/colons: 20260620T1230Z
-  const ts = new Date().toISOString().replace(/[-:]/g, "").slice(0, 13) + "Z";
-  let sourceSlug = "clip";
-  try {
-    sourceSlug = slugify(new URL(url).hostname.replace(/^www\./, "")) || "clip";
-  } catch (_) {
-    sourceSlug = slugify("clip");
-  }
-  const titleSlug = slugify(title || "untitled").slice(0, 40) || "untitled";
-  const path = `raw/${ts}__${sourceSlug}__${titleSlug}__${hash6}.md`;
+// Content-addressed path key. The path is a PURE function of stable clip identity
+// {url, title, text} — NO timestamp — so identical content always maps to the same
+// path. That is what makes the GET-first idempotency check actually dedup a re-clip
+// (MVP-02): same content -> same path -> GitHub GET returns 200 -> skip PUT -> no
+// second raw/ commit. The earlier ts-based path broke this (05-03 live deploy).
+//
+// NOTE: this key is a Worker-level dedup HEURISTIC, NOT the pipeline's identity. The
+// pipeline derives content_hash = sha256(ENTIRE file incl. front matter), which also
+// covers date_saved/type/author and therefore differs from this key. The two layers
+// are not unified; the Worker prevents a second file from existing, so the pipeline
+// never sees a same-content divergence for a normal re-clip. See DECISIONS.md [T2-05-04].
+//
+// 32 hex = 128 bits. A collision would silently drop a distinct clip (GET 200 -> skip
+// PUT -> lost forever, no error). At <=1e5 sources the birthday probability is ~1e-10,
+// but the failure mode is silent permanent data loss, so we use 128 bits (costs nothing;
+// GitHub Contents API accepts long paths). title is included to match the pipeline's
+// inclusion of title in its identity; url+text alone would diverge.
+const CONTENT_KEY_BITS = 32;
+async function contentKey({ url, title, text }) {
+  return (await sha256Hex(`${url || ""}\n${title || ""}\n${text || ""}`)).slice(0, CONTENT_KEY_BITS);
+}
 
+function sourceSlugFromUrl(url) {
+  try {
+    return slugify(new URL(url).hostname.replace(/^www\./, "")) || "clip";
+  } catch (_) {
+    return slugify("clip");
+  }
+}
+
+// Compute the deterministic raw/ path from stable identity (no timestamp, no r2key).
+async function computePath({ url, title, text }) {
+  const sourceSlug = sourceSlugFromUrl(url);
+  const titleSlug = slugify(title || "untitled").slice(0, 40) || "untitled";
+  const key = await contentKey({ url, title, text });
+  return `raw/${sourceSlug}__${titleSlug}__${key}.md`;
+}
+
+// Build the raw/*.md file content (front matter + full-text body). r2key is included
+// only when the body was mirrored to R2 (>200K). Called AFTER the dedup GET, only on
+// the create path, so re-clips never build a file (and never touch R2).
+async function buildContent({ url, type, title, text, r2key }) {
   const nowIso = new Date().toISOString();
   const fmLines = [
     "---",
@@ -92,7 +119,6 @@ async function buildRawFile({ url, type, title, text, r2key }) {
     `author: ""`,
     `date_saved: ${nowIso}`,
     r2key ? `r2key: ${r2key}` : null,
-    `sha8: ${hash6}${hash6}`,
     "---",
     "",
   ];
@@ -100,8 +126,7 @@ async function buildRawFile({ url, type, title, text, r2key }) {
 
   // Q1: body ALWAYS holds the FULL text. Never reduced to an R2 pointer.
   // R2 mirror is belt-and-suspenders; the pipeline synthesizes from this body.
-  const body = text;
-  return { path, content: fm + body };
+  return fm + text;
 }
 
 function ghHeaders(env, extra = {}) {
@@ -109,6 +134,10 @@ function ghHeaders(env, extra = {}) {
     Authorization: `Bearer ${env.GH_PAT}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
+    // GitHub API requires a User-Agent on every request; Cloudflare Workers fetch
+    // sends no default UA (unlike curl/node), so without this GitHub 403s with
+    // "Request forbidden by administrative rules". Found in 05-03 live deploy.
+    "User-Agent": "pkm-clip-worker",
     ...extra,
   };
 }
@@ -164,17 +193,14 @@ export default {
       return corsResponse("payload too large", { status: 413 });
     }
 
-    // 5. R2 offload (Q1): mirror to R2 when >200K, but body keeps the full text.
-    let r2key = null;
-    if (text.length > 200_000) {
-      r2key = "blobs/" + crypto.randomUUID() + ".txt";
-      await env.RAW_BUCKET.put(r2key, text);
-    }
+    // 5. Compute the content-addressed path FIRST (deterministic from {url,title,text},
+    //    no timestamp) so the GET-first dedup actually recognizes a re-clip (MVP-02).
+    const path = await computePath({ url, title, text });
 
-    // 6. Build the raw/*.md file (front matter + full-text body).
-    const { path, content } = await buildRawFile({ url, type, title, text, r2key });
-
-    // 7. Commit via GitHub Contents API — GET-first idempotency (CLIP-04, Q3, raw/ immutable).
+    // 6. Commit via GitHub Contents API — GET-first idempotency (CLIP-04, Q3, raw/ immutable).
+    //    R2 offload + file build happen ONLY on the create path (404), so a re-clip never
+    //    orphans an R2 blob and never rebuilds a file (05-03 live deploy: R2 was put before
+    //    the dedup check, orphaning a blob on every >200K re-clip).
     const getUrl = `https://api.github.com/repos/${env.VAULT_OWNER}/${env.VAULT_REPO}/contents/${path}?ref=main`;
     const exists = await fetch(getUrl, { headers: ghHeaders(env) });
     let deduped = false;
@@ -182,6 +208,14 @@ export default {
       // raw/ is immutable — path already committed. Skip PUT. Still dispatch (Q3).
       deduped = true;
     } else if (exists.status === 404) {
+      // Creating a new raw/ file: offload to R2 if >200K (Q1: body still keeps full text),
+      // then build front matter + body and PUT.
+      let r2key = null;
+      if (text.length > 200_000) {
+        r2key = "blobs/" + crypto.randomUUID() + ".txt";
+        await env.RAW_BUCKET.put(r2key, text);
+      }
+      const content = await buildContent({ url, type, title, text, r2key });
       const putBody = JSON.stringify({
         message: `clip: ${path.split("__")[2] || "untitled"}`,
         content: btoa(unescape(encodeURIComponent(content))),

@@ -166,6 +166,17 @@ def insert_claim(conn, claim: dict, commit: bool = True) -> str:
         The new claim id string.
     """
     claim_id = "clm_" + uuid.uuid4().hex
+    # The agent layer uses the string "null" as the chunk_id sentinel for
+    # untraceable claims (Phase-2 contract; see test_summarizer_chunk_id_rule).
+    # claims.chunk_id has an FK to chunks(id), and no chunks row with id="null"
+    # exists, so storing the literal "null" string throws FOREIGN KEY constraint
+    # failed on Turso (FKs enforced; local test SQLite does not enforce FKs by
+    # default, so the suite missed it — found in 05-03 live deploy). Normalize the
+    # sentinel to SQL NULL at the insert boundary; vault.py renders None back to
+    # "null" for citations, preserving the provenance-anchor contract.
+    chunk_id = claim.get("chunk_id")
+    if isinstance(chunk_id, str) and chunk_id == "null":
+        chunk_id = None
     conn.execute(
         """
         INSERT INTO claims
@@ -176,7 +187,7 @@ def insert_claim(conn, claim: dict, commit: bool = True) -> str:
         (
             claim_id,
             claim["source_id"],
-            claim.get("chunk_id"),
+            chunk_id,
             claim["statement"],
             claim.get("subject"),
             claim.get("predicate"),
