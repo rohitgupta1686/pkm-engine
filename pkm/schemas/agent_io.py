@@ -24,7 +24,7 @@ class GraphNode(BaseModel):
     id: str
     label: str
     name: str
-    properties: dict = {}
+    properties: dict[str, str] = {}
     confidence: float = Field(ge=0, le=1)
     provenance: list[str]
 

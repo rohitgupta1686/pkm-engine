@@ -48,9 +48,28 @@ def _to_openai_strict_schema(schema: dict) -> dict:
     return out
 
 
+# JSON Schema keywords OpenAI strict mode does NOT support. The OpenAI SDK's
+# own to_strict_json_schema strips these; our transform must too, else the API
+# rejects the schema. Field(ge=...)/Field(le=...) emit minimum/maximum, which
+# are the ones we hit in practice (confidence, strength).
+_UNSUPPORTED_STRICT_KEYS = (
+    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+    "minLength", "maxLength", "pattern", "format", "multipleOf",
+    "minItems", "maxItems", "uniqueItems", "contains",
+    "minProperties", "maxProperties", "propertyNames",
+    "unevaluatedItems", "unevaluatedProperties",
+)
+
+
 def _strictify(node: Any) -> None:
     """In-place recursive transform (see _to_openai_strict_schema)."""
     if isinstance(node, dict):
+        # Strip unsupported strict-mode constraint keywords at this node; nested
+        # nodes are recursed by the property/$defs/items/anyOf/catch-all blocks
+        # below, so they get stripped too.
+        for bad in _UNSUPPORTED_STRICT_KEYS:
+            node.pop(bad, None)
+
         # Collapse pydantic nullable anyOf -> type:[T,"null"] where possible.
         any_of = node.get("anyOf")
         if isinstance(any_of, list) and len(any_of) == 2:
