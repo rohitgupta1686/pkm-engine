@@ -103,7 +103,7 @@ def _make_kg_output() -> KGAgentOutput:
                 id="n_operating_leverage",
                 label="Concept",
                 name="Operating Leverage",
-                properties={"domain": "finance"},
+                attributes=[{"key": "domain", "value": "finance"}],
                 confidence=0.9,
                 provenance=["e2e_article"],
             ),

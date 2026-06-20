@@ -20,6 +20,19 @@ class SummarizerOutput(BaseModel):
     summary_confidence: float = Field(ge=0, le=1)
 
 
+class GraphAttribute(BaseModel):
+    """A single key/value attribute on a graph node.
+
+    OpenAI strict mode does not support free-form or typed-map objects
+    (additionalProperties:{schema}); it rejects them and reports the field as an
+    "extra required key". An array of closed {key, value} objects is the
+    documented strict-compatible representation of a string->string map. See 04-03.
+    """
+
+    key: str
+    value: str
+
+
 class GraphNode(BaseModel):
     id: str
     label: str
@@ -27,7 +40,7 @@ class GraphNode(BaseModel):
     # Named `attributes` (not `properties`) to avoid colliding with the JSON
     # Schema "properties" keyword: OpenAI strict mode rejects a field named
     # "properties" ("Extra required key 'properties' supplied"). See 04-03.
-    attributes: dict[str, str] = {}
+    attributes: list[GraphAttribute] = []
     confidence: float = Field(ge=0, le=1)
     provenance: list[str]
 

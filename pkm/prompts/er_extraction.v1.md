@@ -32,8 +32,10 @@ Return a JSON object matching the KGAgentOutput schema:
                                "Region", "Organization".
           name (str):          Canonical display name for the entity (e.g., "TSMC",
                                "Operating Leverage", "Jensen Huang").
-          attributes (dict):  Optional additional structured attributes (string -> string).
-                               Example: {"ticker": "TSM"}. Empty dict if none.
+          attributes (list):  Optional additional structured attributes as a list of
+                               {key, value} objects (both strings). Example:
+                                 [{"key": "ticker", "value": "TSM"}].
+                               Empty list if none.
           confidence (float):  Confidence in [0.0, 1.0] that this entity is correctly
                                identified and typed.
           provenance (list[str]): Source references in "src_id#chunk_id" format.
@@ -94,7 +96,7 @@ Expected output shape (placeholder values — illustrative only):
           "id": "ent_company_tsmc",
           "label": "Company",
           "name": "TSMC",
-          "attributes": {"ticker": "TSM"},
+          "attributes": [{"key": "ticker", "value": "TSM"}],
           "confidence": 0.98,
           "provenance": ["src_tsmc_q3_2025#para_1"]
         },
