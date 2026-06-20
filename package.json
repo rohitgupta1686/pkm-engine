@@ -1,0 +1,31 @@
+{
+  "name": "pkm-engine",
+  "version": "1.0.0",
+  "description": "Clip → synthesized wiki page, $0 infrastructure, zero local daemon.",
+  "main": "worker-clip.js",
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rohitgupta1686/pkm-engine.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/rohitgupta1686/pkm-engine/issues"
+  },
+  "homepage": "https://github.com/rohitgupta1686/pkm-engine#readme",
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.16.18",
+    "vitest": "^4.1.9",
+    "wrangler": "^4.103.0"
+  }
+}

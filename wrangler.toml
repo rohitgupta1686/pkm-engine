@@ -1,0 +1,19 @@
+name = "pkm-clip"
+main = "worker-clip.js"
+compatibility_date = "2026-06-01"
+
+# Non-secret config (safe to commit). Owner/repo names are public.
+[vars]
+VAULT_OWNER = "rohitgupta1686"
+VAULT_REPO = "pkm-vault"
+ENGINE_OWNER = "rohitgupta1686"
+ENGINE_REPO = "pkm-engine"
+
+[[r2_buckets]]
+binding = "RAW_BUCKET"
+bucket_name = "pkm-raw-blobs"
+preview_bucket_name = "pkm-raw-blobs-preview"
+
+# Secrets (NEVER here — use `wrangler secret put`):
+#   PKM_KEY   — the X-PKM-Key shared secret
+#   GH_PAT    — fine-grained PAT, contents:write on pkm-vault + pkm-engine
