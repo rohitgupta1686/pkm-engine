@@ -196,7 +196,10 @@ class LLMClient:
         """
         kwargs: dict[str, Any] = {
             "model": model,
-            "max_tokens": 4096,
+            # gpt-5.x / o-series reject `max_tokens` (400 unsupported_parameter);
+            # `max_completion_tokens` is the unified param OpenAI accepts across all
+            # current chat-completion models. See 04-03 live-dispatch verification.
+            "max_completion_tokens": 4096,
             "messages": messages,
         }
 
