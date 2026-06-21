@@ -1,5 +1,6 @@
 import pathlib
 import uuid
+from datetime import datetime, timezone
 
 import libsql_experimental as libsql
 
@@ -12,12 +13,17 @@ def get_migrations_dir() -> pathlib.Path:
 
 
 def _run_migrations(conn) -> None:
-    """Execute both migration files in order. IF NOT EXISTS guards make this idempotent."""
+    """Execute all migration files in order. IF NOT EXISTS guards make this idempotent."""
     migrations_dir = get_migrations_dir()
-    for filename in ("001_init.sql", "002_graph_tables.sql"):
+    for filename in ("001_init.sql", "002_graph_tables.sql", "003_dashboard_counters.sql"):
         migration_path = migrations_dir / filename
         sql = migration_path.read_text()
         conn.executescript(sql)
+
+
+def _now_iso() -> str:
+    """UTC timestamp string for counter updated_at."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def connect(settings: Settings | None = None):
@@ -39,6 +45,47 @@ def connect(settings: Settings | None = None):
 
     _run_migrations(conn)
     return conn
+
+
+# ---------------------------------------------------------------------------
+# Dashboard counter helpers (GUARD-03 — incrementally-maintained counter rows)
+# ---------------------------------------------------------------------------
+
+def bump_counter(conn, key: str, delta: int = 1, commit: bool = True) -> int:
+    """Increment a dashboard counter by delta (UPSERT), return the new value.
+
+    Lazy-creates the row on first bump. Security (T-07-02-01): parameterized ?
+    placeholders + INSERT ... ON CONFLICT UPDATE — no f-string value interpolation.
+    """
+    now = _now_iso()
+    conn.execute(
+        "INSERT INTO dashboard_counters (key, value, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = value + excluded.value, "
+        "updated_at = excluded.updated_at",
+        (key, delta, now),
+    )
+    if commit:
+        conn.commit()
+    row = conn.execute(
+        "SELECT value FROM dashboard_counters WHERE key = ?",
+        (key,),
+    ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def read_counter(conn, key: str) -> int:
+    """Return a counter value (0 if the row does not exist yet)."""
+    row = conn.execute(
+        "SELECT value FROM dashboard_counters WHERE key = ?",
+        (key,),
+    ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def read_all_counters(conn) -> dict[str, int]:
+    """Return all counter rows as a {key: value} dict."""
+    rows = conn.execute("SELECT key, value FROM dashboard_counters").fetchall()
+    return {r[0]: int(r[1]) for r in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +146,8 @@ def upsert_source(conn, record: dict, commit: bool = True) -> tuple[str, bool]:
             record["updated_at"],
         ),
     )
+    # GUARD-03: bump sources_total only for newly-created rows (created=True).
+    bump_counter(conn, "sources_total", 1, commit=False)
     if commit:
         conn.commit()
     return source_id, True
@@ -197,6 +246,8 @@ def insert_claim(conn, claim: dict, commit: bool = True) -> str:
             claim["created_at"],
         ),
     )
+    # GUARD-03: claims are always new rows → bump claims_total on every insert.
+    bump_counter(conn, "claims_total", 1, commit=False)
     if commit:
         conn.commit()
     return claim_id
@@ -239,6 +290,8 @@ def upsert_concept(conn, concept: dict, commit: bool = True) -> tuple[str, bool]
             concept["updated_at"],
         ),
     )
+    # GUARD-03: bump concepts_total only for newly-created rows (created=True).
+    bump_counter(conn, "concepts_total", 1, commit=False)
     if commit:
         conn.commit()
     return concept_id, True
