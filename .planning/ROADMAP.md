@@ -196,12 +196,12 @@ Plans:
 **Goal:** All acceptance criteria met; cost actuals recorded; MVP review surfaced.
 **Mode:** standard
 
-**Tasks:**
-- Full test suite pass (DATA, AGNT, PIPE, ORCH, CLIP, QURY, GUARD)
-- Record cost actuals in PROGRESS.md (infra $0, Claude $/mo via agent_runs)
-- Confirm all hard constraints: zero local daemon, $0 infra, idempotent re-ingest, raw/ immutable, query at edge
-- Document any Tier-1 batch items accumulated since Phase 1
-- Surface MVP review (Mode C brief)
+**Plans:** 3/3 plans
+
+Plans:
+- [ ] 08-01-PLAN.md — Counter backfill hardening + full test suite green (MVP-05) + provenance/lint evidence (MVP-03) (wave 1)
+- [ ] 08-02-PLAN.md — Cost actuals in PROGRESS.md (MVP-06) + Tier-1 batch review in DECISIONS.md (wave 1)
+- [ ] 08-03-PLAN.md — Live end-to-end demo (MVP-01/02/04) + Mode C MVP-review brief, human MVP-ready judgment (wave 2, autonomous:false)
 
 **Success Criteria:**
 1. End-to-end demo: clip article via bookmarklet → wiki page with citations within ~5 min, Mac asleep
