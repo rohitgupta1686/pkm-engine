@@ -22,15 +22,38 @@ Updated at the end of each phase. See DECISIONS.md for logged choices.
 
 ## Cost Actuals
 
-> To be filled at the Phase 8 MVP gate per MVP-06.
+Filled at the Phase 8 MVP gate per MVP-06 (2026-06-21). All figures are actuals,
+not estimates.
 
 | Item | Target | Actual |
 |------|--------|--------|
-| Infrastructure (recurring) | $0/mo | — |
-| GitHub Actions minutes | $0 (public repo = unlimited) | — |
-| Cloudflare Workers | $0 (free tier) | — |
-| Turso | $0 (free tier) | — |
-| Claude API (pipeline) | TBD $/mo (capped) | — |
+| Infrastructure (recurring) | $0/mo | **$0/mo** — Turso free tier, Cloudflare Workers free tier, no recurring infra |
+| GitHub Actions minutes | $0 (public repo = unlimited) | **$0** — public repo = unlimited free minutes; spending limit $0 fail-closed (GUARD-04, confirmed 2026-06-21) |
+| Cloudflare Workers | $0 (free tier) | **$0** — free tier; Workers AI within 10K/day free limit at current scale (Phase 6) |
+| Turso | $0 (free tier) | **$0** — free tier |
+| OpenAI API (pipeline) | ≤ per-run cap, ≤ monthly hard limit | **$0.35/mo** (June 2026: $0.353260 across 40 agent_runs rows, 197,154 tokens) — cumulative-to-date $0.353260 |
+
+**MVP-06 cost evidence (2026-06-21):** OpenAI $/mo derived from the real
+`agent_runs.cost_usd` totals, not an estimate — the live Turso query
+`SELECT SUM(cost_usd) FROM agent_runs` returns $0.353260 across 40 rows
+(197,154 tokens), all in calendar month 2026-06. `cost_usd` is computed per call
+by `pkm/llm/pricing.py::compute_cost` (`pkm/llm/client.py:352`), which raises
+`KeyError` on unknown models and never returns a hardcoded 0.0 — T1-02
+condition 2, load-bearing for this evidence (verified in `DECISIONS.md` "Phase
+8 MVP-gate review").
+
+**Cost controls confirmed:**
+- Per-run cap `PKM_RUN_COST_CAP_USD` (default $0.50) — `pkm/batch.py` aborts a
+  run if cumulative `cost_usd` ≥ cap. The single largest run is well under this.
+- Per-run token cap `PKM_RUN_TOKEN_CAP` (default 200,000) — `pkm/batch.py` aborts
+  if cumulative tokens ≥ cap.
+- OpenAI monthly hard limit (GUARD-05, set 2026-06-21) — bounds month-total
+  spend at the account level.
+
+The "Claude API (pipeline)" target row is satisfied by the OpenAI actual: the
+cloud pipeline LLM backend is OpenAI `gpt-5.4-mini` (T1-02, locked 2026-06-19),
+not Anthropic. Total cumulative OpenAI spend to date: $0.353260. No secret
+values recorded — only dollar figures and token counts.
 
 ---
 
