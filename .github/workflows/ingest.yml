@@ -150,4 +150,9 @@ jobs:
         if: always()
         working-directory: vault
         continue-on-error: true
-        run: git push "${{ secrets.BACKUP_REMOTE_URL }}" HEAD:refs/heads/main
+        # Clear the extraheader that actions/checkout (persist-credentials: true)
+        # injects for github.com — it carries VAULT_PAT (scoped to pkm-vault only)
+        # and would override the backup token embedded in BACKUP_REMOTE_URL, causing
+        # a 403 "Write access not granted" on pkm-vault-backup. With it cleared, git
+        # authenticates with the URL-embedded backup credential.
+        run: git -c http.https://github.com/.extraheader= push "${{ secrets.BACKUP_REMOTE_URL }}" HEAD:refs/heads/main
