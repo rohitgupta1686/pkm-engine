@@ -25,7 +25,24 @@ See: .planning/PROJECT.md (updated 2026-06-15)
 
 ## Current Phase
 
-**Phase 6: Embeddings + Vector + Query Worker — COMPLETE ✓ (Wave 1–3)**
+**Phase 7: Scheduled Jobs + Guardrails — Code complete (Plans 01–04) ✓; Plan 05 operator checkpoint PENDING**
+
+Plans 01–04 executed autonomously (YOLO) on 2026-06-21. `pytest` → 134 passed (+34 new):
+- 07-01: `pkm/lint.py` (broken wikilinks, orphans, missing provenance) + 13 tests — GUARD-01
+- 07-02: migration 003 + counter helpers wired into insert paths + `pkm/dashboard.py` + 16 tests — GUARD-02/03
+- 07-03: `backfill_embeds` + `pkm lint`/`pkm dashboard`/`pkm backfill-embeds` CLI + 5 tests — GUARD-01/02
+- 07-04: `ingest.yml` +7 nightly steps (backfill, lint, actions-minutes, dashboard, 80% alert, guardrail commit, backup push) + `docs/GUARDRAILS.md` — GUARD-06/07
+
+**Plan 07-05 (autonomous:false) — PENDING operator (Mode C surface):**
+1. GUARD-04 — confirm GH Actions spending limit $0 (public repo = free; private vault = $0 fail-closed)
+2. GUARD-05 — set OpenAI monthly hard spend limit (reconciled from Anthropic); confirm per-run caps in `pkm/batch.py`
+3. GUARD-07 — create backup git remote + scoped token; add `BACKUP_REMOTE_URL` secret to pkm-engine
+4. Deferred CF creds — add `CF_ACCOUNT_ID` + `CF_API_TOKEN` (Workers AI:Read + Vectorize:Edit) as GH Actions secrets
+5. Trigger a `workflow_dispatch` run; verify the 5 ROADMAP Phase 7 success criteria; record run URL + PASS/FAIL in `docs/GUARDRAILS.md` Verification section
+
+See `docs/GUARDRAILS.md` (runbook + checkboxes) and `.planning/phases/07-scheduled-jobs-guardrails/07-05-PLAN.md` (exact steps).
+
+### Prior: Phase 6 — Embeddings + Vector + Query Worker — COMPLETE ✓ (Wave 1–3)
 
 - `pkm/retrieval/embed.py`: Workers AI REST + Vectorize NDJSON upsert, idempotent
 - `worker-query.js`: embed → search → Turso → OpenAI synthesis, X-PKM-Key auth
