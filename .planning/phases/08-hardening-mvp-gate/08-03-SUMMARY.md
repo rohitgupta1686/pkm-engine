@@ -71,8 +71,8 @@ None.
 None for the cited-evidence path. If the human chooses option (c) NOT-ready with a fresh-demo remediation, operator will need to place `~/.pkm_key` (and the clip worker is already deployed); no `.env` needed beyond what the Turso CLI provides.
 
 ## Next Phase Readiness
-**PAUSED at the MVP gate.** Awaiting the human's resume signal: `MVP-ready`, `MVP-ready with limitations: <list>`, or `NOT-ready: <criterion + remediation>`. Do NOT type `start V1`. V1+ advancement is a separate future decision (ROADMAP advancement triggers not met: 7 sources ≪ 150).
+**MVP gate PASSED — human declared MVP-ready on 2026-06-21.** Verdict: option (a) MVP-ready. Accepted limitation carried to V1: missing-provenance best-effort (T2-05-04, 111 claims `chunk_id IS NULL`). V1+ advancement NOT authorized (ROADMAP triggers not met: 7 sources ≪ 150). The system is held at the MVP gate; starting V1 is a separate future human decision. Phase 8 COMPLETE ✓.
 
 ---
 *Phase: 08-hardening-mvp-gate*
-*Completed: 2026-06-21 (evidence); human judgment pending*
+*Completed: 2026-06-21 — MVP-ready declared by human operator*

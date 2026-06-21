@@ -16,7 +16,7 @@ Updated at the end of each phase. See DECISIONS.md for logged choices.
 | Phase 5: Capture Worker | Complete ✓ | Yes | worker-clip.js; X-PKM-Key auth; 13 vitest tests passing; see PHASE5_VERIFICATION.md |
 | Phase 6: Embeddings + Vector + Query Worker | Complete ✓ | Wave 1–3 | embed.py + worker-query.js + 132 tests passing; Wave 3 live CF deploy verified (160 claims embedded, end-to-end query returns cited synthesis) |
 | Phase 7: Scheduled Jobs + Guardrails | Complete ✓ (2026-06-21) | All 5 ROADMAP success criteria verified PASS via workflow_dispatch run 27901063045 | lint.py + dashboard.py + migration 003 + backfill_embeds + CLI + ingest.yml guardrail steps + GUARDRAILS.md; 134 tests passing; Plan 05 operator checkpoint complete (GUARD-04/05/07 + CF creds); backup remote `pkm-vault-backup` mirroring vault; two backup-push bugs fixed (extraheader override, shallow fetch-depth) |
-| Phase 8: Hardening + MVP Gate | Not started | — | Stop here; do NOT start V1 autonomously |
+| Phase 8: Hardening + MVP Gate | Complete ✓ — **MVP-ready declared 2026-06-21** | All 6 MVP criteria PASS | counter backfill (sources=7/claims=160/concepts=40) + full suite green (pytest 137 / npm 13+19) + MVP-03 broken-wikilinks=0 + MVP-06 cost actuals ($0 infra + OpenAI $0.35/mo) + Tier-1 review + MVP-01/02/04 live evidence; held at MVP gate, V1 not started |
 
 ---
 
