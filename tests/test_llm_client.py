@@ -148,6 +148,80 @@ def test_repair_retry_success_on_second(db_conn):
 
 
 # ---------------------------------------------------------------------------
+# B-05-02 durable-summary fix: cache hit restores the real output (output_json)
+# ---------------------------------------------------------------------------
+
+def test_cache_hit_restores_real_output(db_conn):
+    """A second call (cache hit) returns the REAL SummarizerOutput, not a placeholder.
+
+    Regression for the "(summary unavailable — cached run)" bug: agent_runs now
+    persists output_json so a cache hit reconstructs the validated result with no
+    API call.
+    """
+    valid = json.dumps({
+        "thesis": "Anthropic is a target precisely because it is succeeding.",
+        "key_claims": [], "caveats": [], "summary_confidence": 0.9,
+    })
+    with patch("pkm.llm.client.openai.OpenAI") as MockOpenAI:
+        # Only ONE API response is provided — a second create() call would raise
+        # StopIteration, proving the cache hit makes zero API calls.
+        MockOpenAI.return_value.chat.completions.create.side_effect = [
+            _openai_response(valid),
+        ]
+        client = LLMClient(db_conn, api_key="test-key")
+        kwargs = dict(
+            agent_name="summarizer_agent",
+            model=MINI,
+            prompt_version="v1",
+            messages=[{"role": "user", "content": "x"}],
+            input_text="some article text",
+            output_schema=SummarizerOutput,
+        )
+        first = client.call(**kwargs)
+        second = client.call(**kwargs)
+
+    assert first["cached"] is False
+    assert second["cached"] is True
+    # The cache hit carries the restored, validated result — the load-bearing fix.
+    assert "result" in second, "cache hit must restore the stored output_json"
+    assert isinstance(second["result"], SummarizerOutput)
+    assert second["result"].thesis == "Anthropic is a target precisely because it is succeeding."
+    # And output_json was actually persisted on the ok-row.
+    stored = db_conn.execute(
+        "SELECT output_json FROM agent_runs WHERE agent = 'summarizer_agent' AND status = 'ok'"
+    ).fetchone()[0]
+    assert stored is not None and "Anthropic is a target" in stored
+
+
+def test_legacy_cache_row_without_output_json_still_signals_cache_hit(db_conn):
+    """An ok-row with NULL output_json (pre-004 legacy) yields a cache hit with no result.
+
+    Preserves the historical contract so BaseAgent.run() still raises RuntimeError
+    and the pipeline's own recovery path runs.
+    """
+    now = "2026-01-01T00:00:00Z"
+    db_conn.execute(
+        "INSERT INTO agent_runs (id, agent, source_id, input_hash, model, tokens_in, "
+        "tokens_out, cost_usd, status, error, started_at, finished_at, output_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("run_legacy", "summarizer_agent", None,
+         "legacyhash", MINI, 1, 1, 0.0, "ok", None, now, now, None),
+    )
+    db_conn.commit()
+    with patch("pkm.llm.client.openai.OpenAI"):
+        client = LLMClient(db_conn, api_key="test-key")
+        # Force the same input_hash by monkeypatching the hash to the legacy value.
+        client._make_input_hash = lambda *a, **k: "legacyhash"  # type: ignore[method-assign]
+        out = client.call(
+            agent_name="summarizer_agent", model=MINI, prompt_version="v1",
+            messages=[{"role": "user", "content": "x"}], input_text="x",
+            output_schema=SummarizerOutput,
+        )
+    assert out["cached"] is True
+    assert "result" not in out
+
+
+# ---------------------------------------------------------------------------
 # Per-run cost/token cap (batch_ingest)
 # ---------------------------------------------------------------------------
 
