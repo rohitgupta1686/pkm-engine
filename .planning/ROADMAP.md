@@ -164,10 +164,23 @@ Plans:
 **Goal:** Nightly lint + dashboard run in Actions; $0 spend limits confirmed; backup push works; 80% Actions-minutes alert fires.
 **Mode:** standard
 
+**Plans:** 5/5 plans
+
+Plans:
+- [ ] 07-01-PLAN.md — Lint module (broken wikilinks, orphans, missing provenance) + tests (wave 1)
+- [ ] 07-02-PLAN.md — Dashboard + Turso counter rows (migration 003) + tests (wave 1)
+- [ ] 07-03-PLAN.md — CLI wiring (lint/dashboard/backfill-embeds) + backfill_embeds helper (wave 2)
+- [ ] 07-04-PLAN.md — ingest.yml nightly steps (backfill, lint, dashboard, 80% alert, backup push) + GUARDRAILS runbook (wave 3)
+- [ ] 07-05-PLAN.md — Operator guardrail confirmations (GUARD-04/05/07 + CF creds) + end-to-end nightly run verification (wave 4)
+
 **Files to create (pkm-engine):**
 - `pkm/lint.py` — broken [[wikilinks]], orphans, missing ^cite: provenance; writes to log.md
 - `pkm/dashboard.py` — generates dashboard.md with output counts, Actions-minutes, queue depths; uses counter rows (not COUNT(*) scans)
-- `.github/workflows/ingest.yml` updated with lint + dashboard steps + 80% alert + backup push
+- `migrations/sqlite/003_dashboard_counters.sql` — incrementally-maintained counter rows table
+- `pkm/retrieval/embed.py` extended with `backfill_embeds` — reusable idempotent backfill for claims lacking embeddings_meta
+- `pkm/cli.py` extended with `lint`, `dashboard`, `backfill-embeds` subcommands
+- `.github/workflows/ingest.yml` updated with lint + dashboard + 80% alert + backup push + backfill-embeds steps
+- `docs/GUARDRAILS.md` — operator runbook (GUARD-04/05/06/07 + CF-creds gap, OpenAI reconciliation)
 
 **Success Criteria:**
 1. Nightly cron run regenerates dashboard.md with current counts
