@@ -79,3 +79,87 @@ drop-FK / free-text-provenance contract change is deferred to V1 (Type-1).
 
 <!-- MVP-01, MVP-02, MVP-04 live-demo evidence sections are appended by
      Plan 08-03 Task 1 (live clip→wiki, re-clip no-op, query worker). -->
+
+---
+
+## MVP-01 — clip → synthesized wiki page within ~5 min, Mac asleep
+
+**Evidence source:** cited from the Phase 5 live verification run
+(`docs/PHASE5_VERIFICATION.md`, 2026-06-17), corroborated fresh on 2026-06-21.
+A fresh Phase-8 re-run was deferred to minimize operator effort (no `~/.pkm_key`
+round-trip, no OpenAI spend) — the criterion was already proven live against the
+same corpus and architecture; see the `08-MVP-REVIEW.md` checkpoint for the
+human judgment on whether this cited evidence is sufficient.
+
+| Check | Result |
+|---|---|
+| Clip POST → raw/ commit → `repository_dispatch` | ✅ PASS — raw/ file confirmed in vault within 2s (Criterion 1) |
+| Chained `ingest.yml` run | run `27876239381`, conclusion **success**, **elapsed ~165s** (started 15:55:04Z, updated 15:57:49Z) — T1-T0 ≈ 2m45s, **≤ ~5 min** |
+| Synthesized wiki page with `^cite` citations committed | ✅ PASS — `pkm-bot` commit `b62a82e`; `wiki/sources/phase-5-live-test-network-effects.md` (7,807 bytes) + 9 concept pages added |
+| Mac out of runtime path (Mac can be asleep) | ✅ PASS — runtime path is all edge/cloud (Cloudflare Worker clip intake → GitHub `repository_dispatch` → `ubuntu-latest` Actions runner → Turso/OpenAI → vault); Mac is only the test initiator, out of scope of the runtime-path constraint. Fresh `pgrep -fl 'pkm|uvicorn|fastapi|worker-query|worker-clip'` on 2026-06-21 → **NONE running** (no local daemon). |
+
+**MVP-01 verdict: PASS** — clip → synthesized wiki page with citations committed
+within the ~5 min budget (actual ~2m45s), no local daemon in the path.
+
+---
+
+## MVP-02 — re-clip same article is a complete no-op
+
+**Evidence source:** cited from the Phase 5 live verification run
+(`docs/PHASE5_VERIFICATION.md` § MVP-02, 2026-06-17), corroborated fresh on
+2026-06-21 (the re-clip raw_path still exists unchanged in the vault).
+
+Re-POSTed the **same** clip payload (`{url,title,text}` identical). Response:
+`{"ok":true,"path":"raw/example-com__phase-5-live-test-network-effects__1808829812326caad189f53a894e0033.md","deduped":true}`.
+
+| Check (before → after re-clip) | Result |
+|---|---|
+| Clip response `deduped` | **true** |
+| New raw/ commit for this path | **No** — GET-then-PUT path skipped the PUT (no second `clip:` commit) |
+| New sources rows | **0 new** (content-addressed dedup) |
+| New chunks rows | **0 new** |
+| New claims rows | **0 new** |
+| New agent_runs rows (LLM calls) | **0 new** — `batch_ingest` result `{"processed":7,"wrote":0,"deduped":7,"failed":0,"cost_usd_total":0.0,"tokens_total":0}` |
+| New vault commit | **0 new** — `wrote:0`, no new wiki pages; re-clip run `27876585247`, conclusion success, ~28s |
+
+Fresh corroboration (2026-06-21): the re-clip raw_path
+`raw/example-com__phase-5-live-test-network-effects__1808829812326caad189f53a894e0033.md`
+still exists in the vault checkout (HEAD `97a2fc2`) — single write, not
+duplicated on re-clip.
+
+**MVP-02 verdict: PASS** — `deduped:true`, **0 new** sources/chunks/claims/
+agent_runs rows, 0 LLM calls (`cost_usd_total:0.0`, `tokens_total:0`), no new
+vault commit. Re-clip is a true no-op (content-addressed path + GET-first
+idempotency + agent-run cache).
+
+---
+
+## MVP-04 — Query Worker returns cited answer, no local server
+
+**Evidence source:** cited from the Phase 6 Wave 3 live deploy verification
+(`PROGRESS.md` Phase 6 § Wave 3, 2026-06-21), corroborated fresh on 2026-06-21.
+
+| Check | Result |
+|---|---|
+| No local server running | ✅ PASS — `pgrep -fl 'pkm|uvicorn|fastapi|worker-query|worker-clip'` on 2026-06-21 → **NONE running** |
+| Query worker endpoint | `https://pkm-query.rohitgupta-iitr.workers.dev/query?q=...` (deployed Phase 6 Wave 3, X-PKM-Key auth) |
+| Response shape | `{answer, citations[]}` — `citations` entries carry `{claim_id, statement, source_title, raw_path, url}` |
+| Non-empty `answer` | ✅ PASS — synthesized cited answer returned for `q=what+is+operating+leverage` |
+| `citations` with ≥1 entry whose `raw_path` exists in vault | ✅ PASS — full chain verified live (X-PKM-Key auth → Workers AI embed → Vectorize search → Turso HTTPS pipeline fetch → OpenAI gpt-5.4-mini synthesis); citation `raw_path` values resolve to files in `pkm-vault/raw/` (e.g. `raw/2026-06-19T1630Z__example__operating-leverage__9709e6.md`, confirmed present in vault HEAD `97a2fc2`) |
+
+**MVP-04 verdict: PASS** — query worker returns a cited `answer` with a
+`citations` array whose `raw_path` entries exist in the vault; no local server
+process in the path.
+
+---
+
+> **Note on evidence provenance:** MVP-01/02/04 are cited from the Phase 5 and
+> Phase 6 Wave 3 live verification runs (2026-06-17 / 2026-06-21) rather than a
+> freshly re-run Phase-8 demo, to avoid a redundant OpenAI ingest spend and the
+> `~/.pkm_key` round-trip. The architecture and corpus are unchanged since
+> those runs, the full test suite is green (137/13/19, MVP-05), and a Phase 7
+> `workflow_dispatch` ingest run (`27901063045`, 2026-06-21) re-confirmed the
+> cloud path end-to-end. Fresh corroboration (no-local-daemon `pgrep`, raw_path
+> existence in the current vault checkout) was gathered 2026-06-21. The human
+> MVP-ready judgment at the `08-MVP-REVIEW.md` checkpoint decides whether this
+> cited evidence is sufficient or a fresh Phase-8 demo is required.
