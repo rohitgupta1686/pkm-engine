@@ -25,6 +25,7 @@
 **Mode:** standard
 
 **Files to create:**
+
 - `pyproject.toml`, `.env.example`, `README.md`
 - `pkm/config.py` — pydantic-settings
 - `pkm/store/registry.py` — libSQL connection + CRUD + recursive-CTE traversal
@@ -37,6 +38,7 @@
 - `tests/fixtures/` — sample raw file
 
 **Success Criteria:**
+
 1. `test_idempotency.py` green: re-ingesting same content = 0 LLM calls, 0 new rows
 2. Raw-immutability trigger fires on any UPDATE to sources.raw_path
 3. Running `pkm` against empty DB auto-migrates schema on startup
@@ -52,12 +54,14 @@
 **Plans:** 4/4 plans executed
 
 Plans:
+
 - [x] 02-01-PLAN.md — BaseAgent ABC + 3 prompt files (wave 1)
 - [x] 02-02-PLAN.md — ReaderAgent + golden-fixture test infrastructure (wave 2)
 - [x] 02-03-PLAN.md — SummarizerAgent + ConceptExtractor + repair-retry test (wave 2)
 - [x] 02-04-PLAN.md — KGAgent + graph/resolver.py + graph/confidence.py + resolver tests (wave 2)
 
 **Files to create:**
+
 - `pkm/agents/base.py` — BaseAgent ABC with schema validation + repair-retry
 - `pkm/agents/reader_agent.py` — Haiku, raw → raw/*.md front matter
 - `pkm/agents/summarizer_agent.py` — Sonnet, → SummarizerOutput
@@ -70,6 +74,7 @@ Plans:
 - `tests/test_resolver.py` — resolver unit tests
 
 **Success Criteria:**
+
 1. Each agent passes golden-fixture test independently
 2. Every claim has chunk_id (provenance) or null + confidence ≤ 0.5
 3. Schema-invalid LLM response triggers repair-retry; valid response passes
@@ -83,12 +88,14 @@ Plans:
 **Mode:** standard
 
 **Files to create (pkm-engine):**
+
 - `pkm/pipeline/ingest.py` — sequential coordinator
 - `pkm/store/vault.py` — idempotent wiki page upsert with [[wikilinks]] + ^cite: anchors
 - `pkm/cli.py` — `pkm ingest --new-only`
 - `tests/test_ingest_e2e.py`
 
 **Files to create (pkm-vault):**
+
 - `SCHEMA.md` — ontology, page rules, tag vocab, edge types, status enums
 - `index.md`, `log.md`
 - `wiki/` subdirectory structure (all 13 types)
@@ -96,6 +103,7 @@ Plans:
 - `PROGRESS.md`, `DECISIONS.md`
 
 **Success Criteria:**
+
 1. `test_ingest_e2e.py` green: fixture → source page + ≥1 concept page + claim rows (status=pending_review)
 2. Re-running ingest on same fixture = no new files, no new DB rows, 0 LLM calls
 3. Every wiki claim has ^cite:<source_id>#<chunk_id> anchor pointing to raw/ span
@@ -109,9 +117,11 @@ Plans:
 **Mode:** standard
 
 **Files to create (pkm-engine):**
+
 - `.github/workflows/ingest.yml` — triggers: repository_dispatch + schedule cron; checkout vault with VAULT_PAT; run ingest; commit wiki/ + index.md + log.md back; concurrency serialization; timeout-minutes: 10
 
 **Success Criteria:**
+
 1. Firing repository_dispatch to pkm-engine triggers Actions run that writes wiki pages to pkm-vault
 2. Bot commit appears in pkm-vault with synthesized pages
 3. Re-dispatching same payload = no new commit (idempotency preserved end-to-end)
@@ -126,11 +136,13 @@ Plans:
 **Mode:** standard
 
 **Files to create (pkm-engine):**
+
 - `worker-clip.js` — CF Worker: validate X-PKM-Key → optionally offload to R2 → commit raw/*.md to vault via GitHub API → fire repository_dispatch
 - `wrangler.toml`
 - Bookmarklet snippet + README clipper setup notes
 
 **Success Criteria:**
+
 1. POST to Worker with test article → raw/ file appears in pkm-vault within 5 seconds
 2. Large text (>200K chars) offloads to R2; r2key appears in raw/ front matter
 3. Request missing X-PKM-Key header returns 401
@@ -145,12 +157,14 @@ Plans:
 **Mode:** standard
 
 **Files to create (pkm-engine):**
+
 - `pkm/retrieval/embed.py` — Workers AI bge-base-en-v1.5; batch embed; writes embeddings_meta to Turso
 - Vectorize upsert integrated into `pkm/pipeline/ingest.py`
 - `worker-query.js` — embed → Vectorize top-12 → Turso claims fetch → Claude Sonnet synthesis → {answer, citations}
 - `wrangler.toml` updated for query Worker
 
 **Success Criteria:**
+
 1. After ingest, Vectorize index contains embeddings for ingested claims
 2. `curl "$WORKER_URL/query?q=test+question"` returns JSON {answer, citations} within 5 seconds
 3. Citations are valid raw/ paths that exist in pkm-vault
@@ -167,6 +181,7 @@ Plans:
 **Plans:** 5/5 plans
 
 Plans:
+
 - [x] 07-01-PLAN.md — Lint module (broken wikilinks, orphans, missing provenance) + tests (wave 1)
 - [x] 07-02-PLAN.md — Dashboard + Turso counter rows (migration 003) + tests (wave 1)
 - [x] 07-03-PLAN.md — CLI wiring (lint/dashboard/backfill-embeds) + backfill_embeds helper (wave 2)
@@ -174,6 +189,7 @@ Plans:
 - [x] 07-05-PLAN.md — Operator guardrail confirmations (GUARD-04/05/07 + CF creds) + end-to-end nightly run verification (wave 4) — **autonomous:false; complete 2026-06-21**
 
 **Files to create (pkm-engine):**
+
 - `pkm/lint.py` — broken [[wikilinks]], orphans, missing ^cite: provenance; writes to log.md
 - `pkm/dashboard.py` — generates dashboard.md with output counts, Actions-minutes, queue depths; uses counter rows (not COUNT(*) scans)
 - `migrations/sqlite/003_dashboard_counters.sql` — incrementally-maintained counter rows table
@@ -183,6 +199,7 @@ Plans:
 - `docs/GUARDRAILS.md` — operator runbook (GUARD-04/05/06/07 + CF-creds gap, OpenAI reconciliation)
 
 **Success Criteria:**
+
 1. Nightly cron run regenerates dashboard.md with current counts
 2. Lint step writes any failures to log.md (empty = clean vault)
 3. 80% Actions-minutes check runs and would write warning to log.md if triggered
@@ -199,11 +216,17 @@ Plans:
 **Plans:** 3/3 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 08-01-PLAN.md — Counter backfill hardening + full test suite green (MVP-05) + provenance/lint evidence (MVP-03) (wave 1)
 - [ ] 08-02-PLAN.md — Cost actuals in PROGRESS.md (MVP-06) + Tier-1 batch review in DECISIONS.md (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 08-03-PLAN.md — Live end-to-end demo (MVP-01/02/04) + Mode C MVP-review brief, human MVP-ready judgment (wave 2, autonomous:false)
 
 **Success Criteria:**
+
 1. End-to-end demo: clip article via bookmarklet → wiki page with citations within ~5 min, Mac asleep
 2. Re-clip same article → complete no-op (0 new rows, 0 LLM calls, no new commit)
 3. Every wiki claim resolves to raw/ source span
