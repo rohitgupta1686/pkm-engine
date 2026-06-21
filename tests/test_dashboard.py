@@ -25,6 +25,7 @@ from pkm.store.registry import (
     insert_chunks,
     read_all_counters,
     read_counter,
+    seed_counters_from_live_counts,
     upsert_concept,
     upsert_source,
 )
@@ -165,6 +166,61 @@ class TestIdempotentReingestCountersStable:
         assert before["sources_total"] == 1
         assert before["concepts_total"] == 1
         assert before["claims_total"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 Plan 08-01: one-time counter backfill from live table counts
+# ---------------------------------------------------------------------------
+
+
+class TestSeedCountersFromLiveCounts:
+    def test_seed_sets_counters_from_live_counts(self, db_conn):
+        # Insert 2 sources, 3 claims, 1 concept — counters bumped incrementally
+        # but we seed from live COUNT(*) regardless.
+        sid1 = upsert_source(db_conn, _source_record())[0]
+        sid2 = upsert_source(db_conn, _source_record(content_hash="abc" * 4, source_id="src_seed000000002"))[0]
+        for sid in (sid1, sid2):
+            insert_claim(db_conn, {"source_id": sid, "chunk_id": None, "statement": "a", "created_at": "2026-01-01T00:00:00Z"})
+            insert_claim(db_conn, {"source_id": sid, "chunk_id": None, "statement": "b", "created_at": "2026-01-01T00:00:00Z"})
+            insert_claim(db_conn, {"source_id": sid, "chunk_id": None, "statement": "c", "created_at": "2026-01-01T00:00:00Z"})
+        upsert_concept(db_conn, {
+            "id": "cpt_seed-test", "name": "Seed Test", "definition": "d",
+            "domain": "", "wiki_path": "",
+            "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
+        })
+
+        # Corrupt one counter to prove seed overwrites with the absolute live count.
+        bump_counter(db_conn, "claims_total", 100)
+
+        seeded = seed_counters_from_live_counts(db_conn)
+        assert seeded == {"sources_total": 2, "claims_total": 6, "concepts_total": 1}
+        assert read_all_counters(db_conn) == {
+            "sources_total": 2,
+            "claims_total": 6,
+            "concepts_total": 1,
+        }
+
+    def test_seed_is_idempotent(self, db_conn):
+        sid = upsert_source(db_conn, _source_record())[0]
+        insert_claim(db_conn, {"source_id": sid, "chunk_id": None, "statement": "x", "created_at": "2026-01-01T00:00:00Z"})
+
+        first = seed_counters_from_live_counts(db_conn)
+        second = seed_counters_from_live_counts(db_conn)
+        assert first == second
+        assert read_all_counters(db_conn) == {
+            "sources_total": 1,
+            "claims_total": 1,
+            "concepts_total": 0,
+        }
+
+    def test_seed_on_empty_db_yields_zeros(self, db_conn):
+        seeded = seed_counters_from_live_counts(db_conn)
+        assert seeded == {"sources_total": 0, "claims_total": 0, "concepts_total": 0}
+        assert read_all_counters(db_conn) == {
+            "sources_total": 0,
+            "claims_total": 0,
+            "concepts_total": 0,
+        }
 
 
 # ---------------------------------------------------------------------------

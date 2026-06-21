@@ -150,6 +150,23 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Number of claims to embed per batch (default 100).",
     )
 
+    # -- backfill-counters subcommand (Phase 8 / closes Phase-7 carry-in) ------
+    backfill_counters_parser = subparsers.add_parser(
+        "backfill-counters",
+        help="Seed dashboard counters from live table counts (idempotent one-time backfill).",
+        description=(
+            "One-time backfill of dashboard_counters from live COUNT(*) of "
+            "sources/claims/concepts. Closes the Phase-7 gap where pre-Phase-7 "
+            "data was never counted. Idempotent — re-running yields identical values."
+        ),
+    )
+    backfill_counters_parser.add_argument(
+        "--vault",
+        metavar="PATH",
+        default=None,
+        help="Path to the vault root directory. Defaults to VAULT_PATH from settings.",
+    )
+
     return parser
 
 
@@ -172,6 +189,8 @@ def app() -> None:
         _cmd_dashboard(args)
     elif args.subcommand == "backfill-embeds":
         _cmd_backfill_embeds(args)
+    elif args.subcommand == "backfill-counters":
+        _cmd_backfill_counters(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -370,3 +389,21 @@ def _cmd_backfill_embeds(args: argparse.Namespace) -> None:
     # Mirror batch-ingest: exit non-zero if any claim failed to embed.
     if result["failed"] > 0:
         sys.exit(1)
+
+
+def _cmd_backfill_counters(args: argparse.Namespace) -> None:
+    """Execute the backfill-counters subcommand (closes the Phase-7 counter carry-in).
+
+    Seeds dashboard_counters from live COUNT(*) of sources/claims/concepts.
+    --vault is accepted for CLI consistency but unused here (the backfill reads
+    DB tables, not the vault).
+    """
+    from pkm.config import Settings
+    from pkm.store.registry import connect, seed_counters_from_live_counts
+
+    settings = Settings()
+    conn = connect(settings)
+
+    result = seed_counters_from_live_counts(conn)
+    # T-03-09: print only the {key: value} dict — never Settings or secrets.
+    print(json.dumps(result))

@@ -88,6 +88,43 @@ def read_all_counters(conn) -> dict[str, int]:
     return {r[0]: int(r[1]) for r in rows}
 
 
+def seed_counters_from_live_counts(conn, commit: bool = True) -> dict[str, int]:
+    """One-time backfill: set dashboard_counters to absolute live-table COUNT(*).
+
+    Closes the Phase-7 carry-in (STATE.md "Known follow-up"): dashboard_counters
+    rows only bump on new inserts, so pre-Phase-7 data (~160 claims) was never
+    counted and the dashboard read 0 for Sources/Claims/Concepts. This writes
+    absolute values via INSERT OR REPLACE — idempotent (re-running yields
+    identical values) — NOT increments. Do not use bump_counter here (it
+    increments).
+
+    Only seeds the counter keys already used by bump_counter in the insert
+    paths (sources_total / claims_total / concepts_total), from their
+    corresponding live-table COUNT(*).
+
+    Security (T-02-08): parameterized ? placeholders; counter keys and table
+    names are hardcoded constants, not user input.
+    """
+    seeding = {
+        "sources_total": "SELECT COUNT(*) FROM sources",
+        "claims_total": "SELECT COUNT(*) FROM claims",
+        "concepts_total": "SELECT COUNT(*) FROM concepts",
+    }
+    now = _now_iso()
+    result: dict[str, int] = {}
+    for key, count_sql in seeding.items():
+        count = int(conn.execute(count_sql).fetchone()[0])
+        conn.execute(
+            "INSERT OR REPLACE INTO dashboard_counters (key, value, updated_at) "
+            "VALUES (?, ?, ?)",
+            (key, count, now),
+        )
+        result[key] = count
+    if commit:
+        conn.commit()
+    return result
+
+
 # ---------------------------------------------------------------------------
 # CRUD helpers
 # ---------------------------------------------------------------------------
