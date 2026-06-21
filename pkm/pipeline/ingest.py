@@ -46,6 +46,7 @@ from pkm.store.registry import (
     insert_chunks,
     insert_claim,
     link_claim_concept,
+    update_concept_synthesis,
     upsert_concept,
     upsert_source,
 )
@@ -177,6 +178,124 @@ def _resolve_claim_chunk_id(
         ordinal = int(m.group(1)) - 1  # para_1 -> ordinal 0
         return ordinal_to_chunk_id.get(ordinal)
     return None
+
+
+def _run_concept_synthesis(
+    conn,
+    llm_client: Any,
+    vault_root: Path,
+    concept_names: list[str],
+    concept_id_map: dict[str, str],
+    source_slug: str,
+    now_str: str,
+) -> None:
+    """Run ConceptSynthesisAgent for each concept linked to a source (post-commit).
+
+    Idempotent: skips concepts whose claim set hasn't changed since last synthesis.
+    Best-effort: exceptions are logged and do not propagate (source page already written).
+
+    Args:
+        conn:            libsql connection (claims must already be committed).
+        llm_client:      LLMClient instance.
+        vault_root:      pathlib.Path to vault root.
+        concept_names:   Names of concepts linked to the source just ingested.
+        concept_id_map:  Map from concept name -> concept_id in DB.
+        source_slug:     Slug of the source page (used as provenance link).
+        now_str:         ISO timestamp string for this run.
+    """
+    import hashlib
+    import json
+
+    from pkm.agents.concept_synthesis_agent import ConceptSynthesisAgent
+
+    _concept_synthesis_agent = ConceptSynthesisAgent()
+
+    for name in concept_names:
+        cid = concept_id_map.get(name, make_concept_id(name))
+
+        # Gather all claims for this concept (across all sources)
+        rows = conn.execute(
+            "SELECT cl.statement FROM claims cl "
+            "JOIN claim_concepts cc ON cc.claim_id = cl.id "
+            "WHERE cc.concept_id = ?",
+            (cid,)
+        ).fetchall()
+        claim_statements = [r[0] for r in rows]
+
+        if not claim_statements:
+            continue
+
+        # Idempotency: hash the sorted set of claim IDs
+        claim_id_rows = conn.execute(
+            "SELECT cl.id FROM claims cl "
+            "JOIN claim_concepts cc ON cc.claim_id = cl.id "
+            "WHERE cc.concept_id = ? ORDER BY cl.id",
+            (cid,)
+        ).fetchall()
+        claim_ids_sorted = [r[0] for r in claim_id_rows]
+        new_hash = hashlib.sha256(json.dumps(claim_ids_sorted).encode()).hexdigest()
+
+        # Check existing synthesis hash
+        row = conn.execute(
+            "SELECT synthesis_claim_hash FROM concepts WHERE id = ?", (cid,)
+        ).fetchone()
+        existing_hash = row[0] if row and row[0] else None
+
+        if existing_hash == new_hash:
+            # Claim set unchanged — skip synthesis (idempotent, no cost)
+            logger.debug(
+                "_run_concept_synthesis: concept %s unchanged (hash=%s), skipping", name, new_hash[:8]
+            )
+            continue
+
+        # Build input text for the agent
+        claims_block = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(claim_statements))
+        concept_input = f"CONCEPT: {name}\n\nCLAIMS:\n{claims_block}"
+
+        try:
+            synthesis_output = _concept_synthesis_agent.run(llm_client, concept_input, source_id=cid)
+        except RuntimeError:
+            # Cache hit with no restorable output — skip
+            logger.debug(
+                "_run_concept_synthesis: concept %s had cache hit with no restorable output", name
+            )
+            continue
+        except Exception as exc:
+            logger.warning(
+                "_run_concept_synthesis: synthesis failed for concept %s: %s", name, exc
+            )
+            continue
+
+        # Validate the result is a ConceptSynthesisOutput — if the mock/client
+        # returned something else (e.g. an empty string), skip gracefully.
+        from pkm.schemas.agent_io import ConceptSynthesisOutput
+        if not isinstance(synthesis_output, ConceptSynthesisOutput):
+            logger.debug(
+                "_run_concept_synthesis: concept %s returned unexpected type %s, skipping",
+                name, type(synthesis_output).__name__,
+            )
+            continue
+
+        try:
+            # Persist synthesis to DB (own commit — outside main transaction)
+            update_concept_synthesis(
+                conn, cid, new_hash,
+                synthesis_output.explanation,
+                synthesis_output.related_concepts,
+                synthesis_output.evidence_claims,
+                commit=True,
+            )
+
+            # Re-render the concept page with synthesis
+            write_concept_page(
+                conn, vault_root, cid, name, source_slug,
+                synthesis=synthesis_output,
+            )
+        except Exception as exc:
+            logger.warning(
+                "_run_concept_synthesis: failed to persist synthesis for concept %s: %s", name, exc
+            )
+            continue
 
 
 def run_ingest(
@@ -435,9 +554,23 @@ def run_ingest(
             )
 
         source_slug = slugify(title)
+
+        # Extract entities for frontmatter from KGAgent output
+        entities_for_fm: dict = {"companies": [], "people": [], "concepts": []}
+        if kg_output is not None:
+            for node in kg_output.nodes:
+                label = node.label.lower()
+                if label in ("company", "organization", "org"):
+                    entities_for_fm["companies"].append(node.name)
+                elif label in ("person", "author", "ceo", "founder"):
+                    entities_for_fm["people"].append(node.name)
+                else:
+                    entities_for_fm["concepts"].append(node.name)
+
         wiki_path = write_source_page(
             conn, vault_root, source_record, summarizer_output, persisted_claims, concept_names,
             commit=False,
+            entities=entities_for_fm,
         )
 
         for name in concept_names:
@@ -484,6 +617,22 @@ def run_ingest(
                 "run_ingest: embed step failed for source %s: %s", source_id, exc
             )
             embed_result = {"embedded": 0, "skipped": 0, "failed": len(persisted_claims)}
+
+    # -------------------------------------------------------------------------
+    # Step 7.5: Concept synthesis — runs after main transaction (claims committed first).
+    # Best-effort: if synthesis fails, the source page is still written. No rollback.
+    # No-op when llm_client is None (some test modes) or no concepts were extracted.
+    # -------------------------------------------------------------------------
+    if llm_client is not None and concept_names:
+        try:
+            _run_concept_synthesis(
+                conn, llm_client, vault_root,
+                concept_names, concept_id_map, source_slug, now_str,
+            )
+        except Exception as exc:
+            logger.warning(
+                "run_ingest: concept synthesis step failed for source %s: %s", source_id, exc
+            )
 
     # -------------------------------------------------------------------------
     # Step 9: Return result

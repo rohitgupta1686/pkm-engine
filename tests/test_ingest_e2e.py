@@ -318,8 +318,8 @@ class TestIngestFullChain:
         assert source_page.exists(), f"Source page not found: {source_page}"
         source_content = source_page.read_text(encoding="utf-8")
 
-        # Assert: source page has ## Key Claims section
-        assert "## Key Claims" in source_content
+        # Assert: source page has ## Supporting Claims section
+        assert "## Supporting Claims" in source_content
 
         # Assert: every claim bullet matches ^cite:<source_id>#<chunk_id>
         source_id = result["source_id"]

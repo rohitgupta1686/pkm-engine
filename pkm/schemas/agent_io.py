@@ -15,6 +15,7 @@ class KeyClaim(BaseModel):
 
 class SummarizerOutput(BaseModel):
     thesis: str
+    synthesis: str = ""  # 2-5 paragraph prose summary (empty string = not yet generated)
     key_claims: list[KeyClaim]
     caveats: list[str]
     summary_confidence: float = Field(ge=0, le=1)
@@ -58,6 +59,13 @@ class GraphRelationship(BaseModel):
 class KGAgentOutput(BaseModel):
     nodes: list[GraphNode]
     relationships: list[GraphRelationship]
+
+
+class ConceptSynthesisOutput(BaseModel):
+    definition: str        # one sentence
+    explanation: str       # 1-3 paragraphs of prose
+    related_concepts: list[str]   # concept names (to be rendered as [[wikilinks]])
+    evidence_claims: list[str]    # 2-5 example claim statements (verbatim from input)
 
 
 class ConceptMatch(BaseModel):

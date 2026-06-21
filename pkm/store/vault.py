@@ -25,7 +25,7 @@ from pkm.ingest.hashing import slugify
 from pkm.store.registry import update_source_wiki_path
 
 if TYPE_CHECKING:
-    from pkm.schemas.agent_io import SummarizerOutput
+    from pkm.schemas.agent_io import ConceptSynthesisOutput, SummarizerOutput
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +152,7 @@ def write_source_page(
     claims: list[dict],
     concept_names: list[str],
     commit: bool = True,
+    entities: dict | None = None,
 ) -> str:
     """Render wiki/sources/<slug>.md for a source, idempotently.
 
@@ -181,6 +182,13 @@ def write_source_page(
     wiki_path = f"wiki/sources/{slug}.md"
     out_path = vault_root / wiki_path
 
+    # Fix doubled raw/ prefix: raw_path may already start with "raw/"
+    raw_path = source_record.get("raw_path", "")
+    if raw_path.startswith("raw/"):
+        source_path_entry = raw_path  # already has raw/ prefix
+    else:
+        source_path_entry = f"raw/{raw_path}"
+
     # Front matter — deterministic field order, timestamps from record (not now())
     front_matter = _render_front_matter(
         {
@@ -189,9 +197,9 @@ def write_source_page(
             "title": title,
             "created": source_record.get("created_at", ""),
             "updated": source_record.get("updated_at", ""),
-            "source_paths": [f"raw/{source_record.get('raw_path', '')}"],
+            "source_paths": [source_path_entry],
             "tags": [],
-            "entities": {"companies": [], "people": [], "concepts": []},
+            "entities": entities if entities is not None else {"companies": [], "people": [], "concepts": []},
             "confidence": source_record.get("credibility", 0.7),
             "status": "active",
         },
@@ -221,14 +229,29 @@ def write_source_page(
     lines.append(summary.thesis)
     lines.append("")
 
-    # Key Claims — each bullet ends with ^cite:<source_id>#<chunk_id>
-    lines.append("## Key Claims")
+    # Summary section — only rendered when synthesis prose is available
+    synthesis_text = getattr(summary, "synthesis", "") or ""
+    if synthesis_text:
+        lines.append("## Summary")
+        lines.append("")
+        lines.append(synthesis_text)
+        lines.append("")
+
+    # Supporting Claims — each bullet ends with ^cite:<source_id>#<chunk_id>
+    # when chunk_id is a real chunk ID; omit anchor when chunk_id is None/null.
+    lines.append("## Supporting Claims")
+    lines.append("")
+    lines.append("*Atomic claims extracted from the source. See Summary above for the synthesized narrative.*")
     lines.append("")
     for claim in claims:
         statement = claim["statement"]
-        chunk_id = claim.get("chunk_id") or "null"
-        # Provenance anchor contract: always emit ^cite even for null chunk_id
-        lines.append(f"- {statement} ^cite:{source_id}#{chunk_id}")
+        chunk_id = claim.get("chunk_id")
+        # Omit anchor entirely when chunk_id is None or the "null" sentinel to
+        # avoid broken #null anchors that litter the page.
+        if chunk_id and chunk_id != "null":
+            lines.append(f"- {statement} ^cite:{source_id}#{chunk_id}")
+        else:
+            lines.append(f"- {statement}")
     lines.append("")
 
     # Evidence & Data (empty placeholder — agents fill later)
@@ -278,11 +301,17 @@ def write_concept_page(
     concept_id: str,
     name: str,
     source_slug: str,
+    *,
+    synthesis: "ConceptSynthesisOutput | None" = None,
 ) -> str:
     """Render or update wiki/concepts/<slug>.md for a concept, idempotently.
 
     Reads the existing file (if present) and only appends the source link if
     it is not already there — prevents duplication on re-run.
+
+    When ``synthesis`` is provided, the full page is re-rendered with populated
+    sections. Existing provenance links are preserved by reading the current page
+    before overwriting.
 
     Path traversal prevention (T-03-04): slug derived from name via slugify().
 
@@ -292,6 +321,7 @@ def write_concept_page(
         concept_id:  Concept id (cpt_<slug>).
         name:        Human-readable concept name.
         source_slug: Slug of the source page that contributed this concept.
+        synthesis:   Optional ConceptSynthesisOutput to populate content sections.
 
     Returns:
         Vault-relative wiki path (e.g. "wiki/concepts/operating-leverage.md").
@@ -315,18 +345,89 @@ def write_concept_page(
 
     source_link = f"[[{source_slug}]]"
 
+    if synthesis is not None:
+        # Full re-render with synthesis — collect existing provenance links first
+        existing_provenance_links: list[str] = []
+        if out_path.exists():
+            existing_text = out_path.read_text(encoding="utf-8")
+            # Extract all [[...]] links from the ## Provenance section
+            existing_provenance_links = _extract_provenance_links(existing_text)
+
+        # Ensure current source_link is in the provenance list
+        if source_link not in existing_provenance_links:
+            existing_provenance_links.append(source_link)
+
+        front_matter = _render_front_matter(
+            {
+                "id": concept_id,
+                "type": "concept",
+                "title": name,
+                "created": created_at,
+                "updated": updated_at,
+                "source_paths": [],
+                "tags": [],
+                "entities": {"companies": [], "people": [], "concepts": []},
+                "confidence": 0.7,
+                "status": "active",
+            },
+            key_order=_FRONT_MATTER_KEYS_CONCEPT,
+        )
+
+        lines: list[str] = []
+        lines.append(f"# {name}\n")
+        lines.append("---")
+        lines.append("")
+
+        lines.append("## One-sentence Definition")
+        lines.append("")
+        lines.append(synthesis.definition)
+        lines.append("")
+
+        lines.append("## Explanation")
+        lines.append("")
+        lines.append(synthesis.explanation)
+        lines.append("")
+
+        lines.append("## Related Concepts")
+        lines.append("")
+        for related_name in synthesis.related_concepts:
+            related_slug = slugify(related_name)
+            lines.append(f"[[{related_slug}]]")
+        lines.append("")
+
+        lines.append("## Instances/Evidence")
+        lines.append("")
+        for evidence_claim in synthesis.evidence_claims:
+            lines.append(f"- {evidence_claim}")
+        lines.append("")
+
+        lines.append("## Provenance")
+        lines.append("")
+        for link in existing_provenance_links:
+            lines.append(link)
+        lines.append("")
+
+        body = "\n".join(lines)
+        content = front_matter + "\n" + body
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(content, encoding="utf-8")
+        return wiki_path
+
+    # No synthesis — use the existing append-only logic
+
     if out_path.exists():
         # Read existing page and add source link only if not already present
         existing = out_path.read_text(encoding="utf-8")
         if source_link in existing:
             # Already linked — no change needed (idempotent)
             return wiki_path
-        # Add source link to both ## Provenance and ## Instances/Evidence sections
+        # Add source link to ## Provenance section
         updated = _append_source_link(existing, source_link)
         out_path.write_text(updated, encoding="utf-8")
         return wiki_path
 
-    # New page — render from scratch
+    # New page — render from scratch (empty template)
     front_matter = _render_front_matter(
         {
             "id": concept_id,
@@ -343,7 +444,7 @@ def write_concept_page(
         key_order=_FRONT_MATTER_KEYS_CONCEPT,
     )
 
-    lines: list[str] = []
+    lines = []
     lines.append(f"# {name}\n")
     lines.append("---")
     lines.append("")
@@ -374,6 +475,26 @@ def write_concept_page(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(content, encoding="utf-8")
     return wiki_path
+
+
+def _extract_provenance_links(text: str) -> list[str]:
+    """Extract all [[wikilink]] tokens from the ## Provenance section of a page.
+
+    Returns a list of link strings (e.g. ["[[source-slug]]", "[[other-slug]]"]).
+    Returns an empty list if the section is absent or contains no links.
+    """
+    import re
+    if "## Provenance" not in text:
+        return []
+    # Extract the provenance section content (from heading to next ## or end of file)
+    parts = text.split("## Provenance", 1)
+    section_text = parts[1]
+    # Stop at the next ## heading
+    next_heading = re.search(r"\n## ", section_text)
+    if next_heading:
+        section_text = section_text[: next_heading.start()]
+    # Find all [[...]] links in the section
+    return re.findall(r"\[\[[^\]]+\]\]", section_text)
 
 
 def _append_source_link(existing: str, source_link: str) -> str:
