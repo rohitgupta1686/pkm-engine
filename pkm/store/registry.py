@@ -26,6 +26,7 @@ def _run_migrations(conn) -> None:
         "002_graph_tables.sql",
         "003_dashboard_counters.sql",
         "004_agent_runs_output.sql",
+        "005_concept_synthesis.sql",
     ):
         migration_path = migrations_dir / filename
         sql = migration_path.read_text()
@@ -358,6 +359,39 @@ def link_claim_concept(conn, claim_id: str, concept_id: str, commit: bool = True
     conn.execute(
         "INSERT OR IGNORE INTO claim_concepts (claim_id, concept_id) VALUES (?, ?)",
         (claim_id, concept_id),
+    )
+    if commit:
+        conn.commit()
+
+
+def update_concept_synthesis(
+    conn,
+    concept_id: str,
+    claim_hash: str,
+    explanation: str,
+    related: list,
+    evidence: list,
+    commit: bool = True,
+) -> None:
+    """Update concept synthesis columns after a ConceptSynthesisAgent run.
+
+    Security (T-03-03): parameterized ? placeholders throughout.
+
+    Args:
+        conn:        libsql connection.
+        concept_id:  Concept id (cpt_<slug>).
+        claim_hash:  SHA-256 of sorted claim ID set (idempotency key).
+        explanation: Prose explanation from ConceptSynthesisOutput.
+        related:     List of related concept name strings.
+        evidence:    List of verbatim evidence claim strings.
+        commit:      Whether to commit immediately.
+    """
+    import json
+    now = _now_iso()
+    conn.execute(
+        "UPDATE concepts SET synthesis_claim_hash = ?, synthesis_explanation = ?, "
+        "synthesis_related = ?, synthesis_evidence = ?, updated_at = ? WHERE id = ?",
+        (claim_hash, explanation, json.dumps(related), json.dumps(evidence), now, concept_id),
     )
     if commit:
         conn.commit()
