@@ -25,13 +25,13 @@ See: .planning/PROJECT.md (updated 2026-06-15)
 
 ## Current Phase
 
-**Phase 6: Embeddings + Vector + Query Worker — CODE COMPLETE ✓ (Wave 1–2)**
+**Phase 6: Embeddings + Vector + Query Worker — COMPLETE ✓ (Wave 1–3)**
 
 - `pkm/retrieval/embed.py`: Workers AI REST + Vectorize NDJSON upsert, idempotent
 - `worker-query.js`: embed → search → Turso → OpenAI synthesis, X-PKM-Key auth
 - `pytest`: 100 passed (incl. 14 new embed tests); `npm run test:query`: 19 query-worker tests
 - B-05-02 stuck-source bug fixed in run_ingest (wiki_path IS NOT NULL guard)
-- **Wave 3 (live CF deploy of query worker) pending operator steps** — see `PROGRESS.md` Phase 6 section
+- **Wave 3 (live CF deploy) COMPLETE ✓ (2026-06-21)**: Vectorize index `pkm-claims` created + 160 claims embedded; query worker deployed to `https://pkm-query.rohitgupta-iitr.workers.dev` with 4 secrets; end-to-end `/query` returns cited synthesis. Fixes: `max_tokens`→`max_completion_tokens`; worker `TURSO_URL` must be HTTPS form. **Deferred:** CI ingest still lacks CF creds (`CF_ACCOUNT_ID`/`CF_API_TOKEN` GH secrets) so future CI ingests skip embed — carry into Phase 7. See `PROGRESS.md` Phase 6 section.
 
 **Prior phases — all COMPLETE ✓** (see Phase History below and `PROGRESS.md` for DoD evidence).
 
@@ -58,7 +58,7 @@ See: .planning/PROJECT.md (updated 2026-06-15)
   - [x] VAULT_PAT (fine-grained PAT, contents:write on pkm-vault only) — confirmed in Phase 4 verification
   - [x] GitHub Actions spending limit = $0 (public repo = unlimited free minutes)
   - [x] Cloudflare account + CF_ACCOUNT_ID + scoped API token — worker-clip.js deployed & verified in Phase 5
-- Phase 6 Wave 3 outstanding: live Cloudflare deploy of `worker-query.js` + Vectorize index creation (operator steps; see `PROGRESS.md`).
+- ~~Phase 6 Wave 3 outstanding~~ → **COMPLETE (2026-06-21)**. Live deploy + end-to-end query verified. Remaining: add `CF_ACCOUNT_ID` + scoped `CF_API_TOKEN` as GitHub Actions secrets so CI ingest auto-embeds new sources (deferred to Phase 7); see `PROGRESS.md` Phase 6 section.
 
 ## Phase 1 Decisions (Wave 1)
 
