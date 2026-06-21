@@ -1,9 +1,10 @@
 # Phase 8 — MVP Review Brief (Mode C, human judgment)
 
-**Status:** evidence gathered, **MVP-ready judgment NOT made by Claude** — this
-is a Type-1 (irreversible) human call per `CLAUDE.md` "Stop at MVP gate; do NOT
-start V1 autonomously." Claude presents the evidence and three options; the
-human chooses.
+**Status:** ✅ **MVP-ready — declared by the human operator on 2026-06-21.**
+This is a Type-1 (irreversible) human call per `CLAUDE.md` "Stop at MVP gate; do
+NOT start V1 autonomously." Claude presented the evidence; the human chose
+option (a) MVP-ready. The system is held at the MVP gate — V1 is a separate
+future decision and is **not authorized**.
 
 **Date:** 2026-06-21
 
@@ -105,6 +106,27 @@ Choose ONE:
 
 **Do NOT type "start V1".** V1+ advancement is not on the table at this
 checkpoint.
+
+---
+
+## Verdict (recorded 2026-06-21)
+
+**Human judgment: MVP-ready** (option a).
+
+- All six MVP criteria PASS on the evidence (table above).
+- Accepted limitation carried to V1: **missing-provenance best-effort**
+  (DECISIONS.md [T2-05-04]) — 111 claims have `chunk_id IS NULL` because the
+  `para_N → ordinal` chunk-resolution heuristic is best-effort. The drop-FK /
+  free-text-provenance alternative is deferred to V1 as a Type-1 contract
+  change. MVP-03's hard gate (`broken_wikilinks == 0`) holds regardless.
+- Tier-1 batch reaffirmed: T1-01 Vectorize, T1-02 OpenAI gpt-5.4-mini (all 3
+  conditions PASS). No new Type-1 decision locked.
+- **V1+ advancement NOT authorized.** ROADMAP advancement triggers not met
+  (7 sources ≪ 150; no long-context misses; no relational-question recurrence).
+  The system is held at the MVP gate. Starting V1 (Chroma, 12 templates, hybrid
+  retrieval, Neo4j, GraphRAG, V2/V3 agents) is a separate future human decision.
+- Evidence provenance: MVP-01/02/04 cited from Phase 5 / Phase 6 Wave 3 live
+  runs + fresh 2026-06-21 corroboration (accepted by the human as sufficient).
 
 ---
 

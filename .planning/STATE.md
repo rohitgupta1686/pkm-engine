@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-21T10:41:54.241Z"
+status: complete
+last_updated: "2026-06-21"
 progress:
   total_phases: 8
-  completed_phases: 2
-  total_plans: 13
-  completed_plans: 12
-  percent: 25
+  completed_phases: 8
+  total_plans: 16
+  completed_plans: 16
+  percent: 100
 ---
 
 # Project State: AI-Assisted PKM System
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-15)
 
 **Core value:** Clipping a source anywhere produces a synthesized, linked, cited wiki page with zero local daemon and zero infrastructure cost.
-**Current focus:** Phase 8 — Hardening + MVP Gate (**STOP here; do NOT start V1 autonomously**)
+**Current focus:** MVP gate PASSED — system held at MVP. **Do NOT start V1 autonomously** (Type-1 human decision; ROADMAP advancement triggers not met).
 
 > **Note (2026-06-21):** This file had fallen behind reality. Phases 3–6 were completed on the remote but STATE.md was not updated at the time. Reconciled against `PROGRESS.md` (the fresher record) and the live `pkm-vault` output. Phase-by-phase evidence lives in `PROGRESS.md` and `docs/PHASE{N}_VERIFICATION.md`; `DECISIONS.md` holds the logged choices. This STATE.md is the GSD status summary only.
 
@@ -52,14 +52,17 @@ counters read 0 — `dashboard_counters` rows only bump on new inserts, so
 pre-Phase-7 data (~160 claims) was never counted. One-time counter backfill
 needed. Lint orphan/missing-provenance counts are correct (query live tables).
 
-### Current: Phase 8 — Hardening + MVP Gate — evidence gathered; PAUSED at MVP gate (2026-06-21)
+### Current: Phase 8 — Hardening + MVP Gate — COMPLETE ✓ (MVP-ready declared 2026-06-21)
 
-Plans 08-01 + 08-02 (Wave 1, autonomous) and 08-03 Task 1 (live evidence) executed autonomously on 2026-06-21. All six MVP criteria PASS on the evidence; Claude has NOT declared MVP-ready (Type-1 human call).
+Plans 08-01 + 08-02 (Wave 1, autonomous) and 08-03 (live evidence + human checkpoint) executed on 2026-06-21. All six MVP criteria PASS on the evidence. **Human operator declared MVP-ready** (Type-1 judgment, option a) on 2026-06-21. The system is held at the MVP gate — V1 is NOT started and NOT authorized.
 
 - 08-01: `seed_counters_from_live_counts` + `pkm backfill-counters` CLI + 3 tests; live backfill set `sources_total=7, claims_total=160, concepts_total=40` (Phase-7 carry-in closed). pytest 137 / npm clip 13 / npm query 19, 0 failed (MVP-05). MVP-03 hard gate `broken_wikilinks=0` PASS; missing-provenance=111 carried as accepted limitation (T2-05-04).
 - 08-02: PROGRESS.md Cost Actuals filled (MVP-06: 4 infra rows $0 + OpenAI $0.35/mo from live `SUM(cost_usd)`); DECISIONS.md "Phase 8 MVP-gate review" (T1-01 reaffirm, T1-02 three-condition PASS); STATE.md CF-creds reconciled to CLOSED.
-- 08-03 Task 1: MVP-01/02/04 evidence appended to `docs/PHASE8_VERIFICATION.md` (cited from Phase 5 / Phase 6 Wave 3 live runs + fresh corroboration).
-- 08-03 Task 2: `08-MVP-REVIEW.md` brief written — **PAUSED at blocking checkpoint:human-verify** for the human's MVP-ready judgment (`MVP-ready` / `MVP-ready with limitations: <list>` / `NOT-ready: <criterion + remediation>`). Do NOT start V1.
+- 08-03: MVP-01/02/04 evidence appended to `docs/PHASE8_VERIFICATION.md` (cited from Phase 5 / Phase 6 Wave 3 live runs + fresh corroboration; accepted by human as sufficient). `08-MVP-REVIEW.md` brief written; **human verdict: MVP-ready**.
+
+**Accepted limitation carried to V1:** missing-provenance best-effort (T2-05-04) — 111 claims `chunk_id IS NULL`; drop-FK / free-text-provenance deferred to V1 as a Type-1 contract change.
+
+**V1+ advancement NOT authorized.** ROADMAP triggers not met (7 sources ≪ 150; no long-context misses; no relational-question recurrence). Starting V1 is a separate future human decision.
 
 See `docs/PHASE8_VERIFICATION.md`, `.planning/phases/08-hardening-mvp-gate/08-MVP-REVIEW.md`, and the `08-0{1,2,3}-SUMMARY.md` files.
 
@@ -84,7 +87,7 @@ See `docs/PHASE8_VERIFICATION.md`, `.planning/phases/08-hardening-mvp-gate/08-MV
 | Phase 5: Capture Worker | Complete ✓ | 2026-06-17 |
 | Phase 6: Embeddings + Vector + Query Worker | Code complete ✓ (Wave 1–2; Wave 3 = live CF deploy pending operator) | 2026-06-21 |
 | Phase 7: Scheduled Jobs + Guardrails | Complete ✓ | 2026-06-21 |
-| Phase 8: Hardening + MVP Gate | Evidence gathered — **PAUSED at MVP gate for human judgment (2026-06-21)**; all 6 criteria PASS on evidence; do NOT start V1 autonomously | 2026-06-21 (evidence) |
+| Phase 8: Hardening + MVP Gate | Complete ✓ — **MVP-ready declared by human 2026-06-21**; all 6 criteria PASS; held at MVP gate; do NOT start V1 autonomously | 2026-06-21 |
 
 ## Open Items
 
