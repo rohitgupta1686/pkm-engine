@@ -11,10 +11,10 @@ Updated at the end of each phase. See DECISIONS.md for logged choices.
 |-------|--------|---------|-------|
 | Phase 1: Data Layer + Idempotency | Complete ✓ | Yes | 5/5 tests passing; immutability trigger, schema auto-migrate, LLM cache verified |
 | Phase 2: Core Agents | Complete ✓ | Yes | 22/22 tests passing; ReaderAgent, SummarizerAgent, ConceptExtractor, KGAgent all complete |
-| Phase 3: Pipeline + Vault Writer + CLI | In Progress | — | Wave 1 executing (03-01 vault scaffold) |
-| Phase 4: GitHub Actions Orchestration | Not started | — | Requires Phase 3 complete; also needs VAULT_PAT + CF credentials (see Open Items in STATE.md) |
-| Phase 5: Capture Worker | Not started | — | |
-| Phase 6: Embeddings + Vector + Query Worker | Not started | — | |
+| Phase 3: Pipeline + Vault Writer + CLI | Complete ✓ | Yes | run_ingest end-to-end; GitVaultWriter; CLI ingest/batch; see PHASE3 verification |
+| Phase 4: GitHub Actions Orchestration | Complete ✓ | Yes | ingest.yml dispatch workflow; VAULT_PAT + CF secrets; see PHASE4_VERIFICATION.md |
+| Phase 5: Capture Worker | Complete ✓ | Yes | worker-clip.js; X-PKM-Key auth; 13 vitest tests passing; see PHASE5_VERIFICATION.md |
+| Phase 6: Embeddings + Vector + Query Worker | Complete ✓ | Wave 1–2 | embed.py + worker-query.js + 132 tests passing; Wave 3 (live CF deploy) pending operator steps |
 | Phase 7: Scheduled Jobs + Guardrails | Not started | — | |
 | Phase 8: Hardening + MVP Gate | Not started | — | Stop here; do NOT start V1 autonomously |
 
@@ -47,3 +47,60 @@ Updated at the end of each phase. See DECISIONS.md for logged choices.
 - `pytest tests/test_agents.py`: 22 passed, 0 failed, 0 warnings
 - AGNT-01 through AGNT-06 requirements verified
 - All 4 BaseAgent subclasses complete: ReaderAgent, SummarizerAgent, ConceptExtractor, KGAgent
+
+## Phase 3 DoD Evidence (2026-06-16)
+
+- `pytest`: full suite green
+- run_ingest(): reader→summarizer→concept→kg→vault pipeline complete
+- GitVaultWriter commits synthesized wiki pages to pkm-vault
+- CLI: `pkm ingest` + `pkm batch-ingest` working
+
+## Phase 4 DoD Evidence (2026-06-16)
+
+- `.github/workflows/ingest.yml`: repository_dispatch trigger with `repository_dispatch_token`
+- VAULT_PAT secret + gh repo push confirmed in docs/PHASE4_VERIFICATION.md
+- Batch ingest with per-run cost+token cap enforced
+
+## Phase 5 DoD Evidence (2026-06-17)
+
+- `npm test`: 13 vitest tests passing (worker-clip.spec.ts)
+- worker-clip.js deployed to Cloudflare Workers
+- X-PKM-Key timingSafeEqual auth gate verified
+- GitHub repository_dispatch fires on successful clip
+- See docs/PHASE5_VERIFICATION.md
+
+## Phase 6 Code Complete (2026-06-21)
+
+- `pytest`: 100 passed (includes test_embed.py — 14 new tests)
+- `npm test`: 13 clip worker tests passing
+- `npm run test:query`: 19 query worker tests passing
+- B-05-02 stuck-source bug fixed in run_ingest (wiki_path IS NOT NULL guard)
+- pkm/retrieval/embed.py: Workers AI REST + Vectorize NDJSON upsert, idempotent
+- worker-query.js: embed→search→Turso→OpenAI synthesis, X-PKM-Key auth
+- Wave 3 (live CF deploy) requires operator steps — see below
+
+### Wave 3 operator checklist (manual steps before verification run):
+
+```
+# 1. Create Vectorize index (one-time)
+npx wrangler vectorize create pkm-claims --dimensions=768 --metric=cosine
+
+# 2. Add GH Actions secrets (CF_ACCOUNT_ID, CF_API_TOKEN) via GitHub repo settings
+#    Required scopes: Workers AI:Read + Vectorize:Edit
+
+# 3. Deploy query worker
+npx wrangler deploy -c wrangler-query.toml
+
+# 4. Set query worker secrets
+wrangler secret put PKM_KEY -c wrangler-query.toml
+wrangler secret put TURSO_URL -c wrangler-query.toml
+wrangler secret put TURSO_TOKEN -c wrangler-query.toml
+wrangler secret put OPENAI_API_KEY -c wrangler-query.toml
+
+# 5. Fire ingest to populate Vectorize (dispatch or send a clip)
+#    After ingest, check: SELECT COUNT(*) FROM embeddings_meta;
+
+# 6. Verify end-to-end
+curl "$QUERY_WORKER_URL/query?q=what+is+operating+leverage" \
+  -H "X-PKM-Key: $(cat ~/.pkm_key)"
+```
