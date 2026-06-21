@@ -28,7 +28,7 @@ below as you complete them.
 **Test:** a run that exceeds the free quota on a private repo fails to start/runs
 out of minutes instead of producing a charge.
 
-- [ ] GUARD-04 confirmed (public repo: unlimited free; private repo: spending limit = $0) — date: ______
+- [x] GUARD-04 confirmed (public repo: unlimited free; private repo: spending limit = $0) — date: 2026-06-21
 
 ---
 
@@ -53,8 +53,8 @@ out of minutes instead of producing a charge.
 aborts before completion; a month that would exceed the OpenAI hard limit is
 rejected by the API/console rather than billed.
 
-- [ ] GUARD-05 confirmed (OpenAI monthly hard limit set) — cap value: $____/mo — date: ______
-- [ ] Per-run caps `PKM_RUN_COST_CAP_USD` / `PKM_RUN_TOKEN_CAP` confirmed present in `pkm/batch.py` — date: ______
+- [x] GUARD-05 confirmed (OpenAI monthly hard limit set in OpenAI console) — cap value: set in OpenAI billing settings (operator-confirmed; numeric value not transcribed into the repo) — date: 2026-06-21
+- [x] Per-run caps `PKM_RUN_COST_CAP_USD` / `PKM_RUN_TOKEN_CAP` confirmed present in `pkm/batch.py` — date: 2026-06-21
 
 ---
 
@@ -78,7 +78,7 @@ private-repo scenario where minutes are metered.
 deliberately set low (e.g. `1`), a `WARN actions-minutes` line appears in
 `vault/log.md`.
 
-- [ ] GUARD-06 step present in `ingest.yml` (no operator config needed for the public repo)
+- [x] GUARD-06 step present in `ingest.yml` (no operator config needed for the public repo) — verified 2026-06-21
 
 ---
 
@@ -89,8 +89,19 @@ rebuilt from `raw/` (cloud doc §13 line 350). The nightly "Backup push to secon
 remote" step mirrors the vault HEAD to an off-site git host:
 
 ```
-git push "${{ secrets.BACKUP_REMOTE_URL }}" HEAD:refs/heads/main
+git -c http.https://github.com/.extraheader= push "${{ secrets.BACKUP_REMOTE_URL }}" HEAD:refs/heads/main
 ```
+
+> **Two gotchas resolved 2026-06-21** (recorded so they don't regress):
+> 1. `actions/checkout` with `persist-credentials: true` injects `VAULT_PAT` as
+>    `http.https://github.com/.extraheader`, which overrides the backup token
+>    embedded in `BACKUP_REMOTE_URL` for any `github.com` push → 403 "Write
+>    access not granted" on the backup repo. The `-c http.https://github.com/.extraheader=`
+>    above clears it for this push so the URL-embedded backup credential is used.
+> 2. `actions/checkout` defaults to `fetch-depth: 1` (shallow), so the vault
+>    checkout lacks parent history → pushing to the empty backup remote fails
+>    with "remote unpack failed: index-pack failed / did not receive expected
+>    object". The vault checkout sets `fetch-depth: 0` to mirror complete history.
 
 `BACKUP_REMOTE_URL` is a **repository secret** in `pkm-engine` holding the full
 https push URL for a second private GitHub repo (e.g. `pkm-vault-backup`) or
@@ -113,8 +124,8 @@ add the `BACKUP_REMOTE_URL` secret) are in the Plan 05 checkpoint.
 **Test:** after a nightly run, the backup remote's `main` branch HEAD matches
 `pkm-vault`'s `main` HEAD.
 
-- [ ] Backup remote created (repo / host): ______
-- [ ] `BACKUP_REMOTE_URL` secret added to pkm-engine (scoped to backup repo only) — date: ______
+- [x] Backup remote created (repo / host): `rohitgupta1686/pkm-vault-backup` (GitHub) — date: 2026-06-21
+- [x] `BACKUP_REMOTE_URL` secret added to pkm-engine (scoped to backup repo only; fine-grained PAT, contents:read+write on `pkm-vault-backup` only) — date: 2026-06-21
 
 ---
 
@@ -137,8 +148,8 @@ Setup is a Plan 05 checkpoint.
 reports `embedded > 0` (or `skipped = N` if all claims were already embedded);
 `SELECT COUNT(*) FROM embeddings_meta` equals `SELECT COUNT(*) FROM claims` in Turso.
 
-- [ ] `CF_ACCOUNT_ID` secret added to pkm-engine — date: ______
-- [ ] `CF_API_TOKEN` secret added to pkm-engine (scoped Workers AI:Read + Vectorize:Edit) — date: ______
+- [x] `CF_ACCOUNT_ID` secret added to pkm-engine — date: 2026-06-21
+- [x] `CF_API_TOKEN` secret added to pkm-engine (scoped Workers AI:Read + Vectorize:Edit) — date: 2026-06-21
 
 ---
 
@@ -152,9 +163,9 @@ Phase 7 workflow inputs (see `SECRETS.md` for the pre-existing ones):
 | `TURSO_URL` | secret | libSQL connection | pre-existing |
 | `TURSO_TOKEN` | secret | Turso auth | pre-existing |
 | `VAULT_PAT` | secret | checkout + commit-back to pkm-vault | pre-existing |
-| `CF_ACCOUNT_ID` | secret | Workers AI + Vectorize (embed/backfill) | **Plan 05 checkpoint** |
-| `CF_API_TOKEN` | secret | Workers AI:Read + Vectorize:Edit | **Plan 05 checkpoint** |
-| `BACKUP_REMOTE_URL` | secret | off-site vault backup push (GUARD-07) | **Plan 05 checkpoint** |
+| `CF_ACCOUNT_ID` | secret | Workers AI + Vectorize (embed/backfill) | set 2026-06-21 |
+| `CF_API_TOKEN` | secret | Workers AI:Read + Vectorize:Edit | set 2026-06-21 |
+| `BACKUP_REMOTE_URL` | secret | off-site vault backup push (GUARD-07) | set 2026-06-21 |
 | `PKM_ACTIONS_MINUTES_CAP` | repo variable | 80% alert cap (default 2000) | optional |
 | `PKM_RUN_COST_CAP_USD` | env (workflow) | per-run spend cap (default 0.50) | enforced in `pkm/batch.py` |
 | `PKM_RUN_TOKEN_CAP` | env (workflow) | per-run token cap (default 200000) | enforced in `pkm/batch.py` |
@@ -168,3 +179,26 @@ artifacts end-to-end. Record the run URL and PASS/FAIL for each of the 5 ROADMAP
 Phase 7 success criteria here once verified._
 
 <!-- Verification section appended by the operator during Plan 05 Task 2. -->
+
+**Verification run:** `workflow_dispatch` of `ingest.yml` —
+https://github.com/rohitgupta1686/pkm-engine/actions/runs/27901063045
+(2026-06-21, conclusion: success). All 7 Phase 7 steps green:
+
+| # | ROADMAP Phase 7 success criterion | Result |
+|---|-----------------------------------|--------|
+| 1 | Nightly cron run regenerates `dashboard.md` with current counts | **PASS** — "Regenerate dashboard" step success; `dashboard.md` written (timestamp 2026-06-21T10:11:59Z). |
+| 2 | Lint step writes any failures to `log.md` (empty = clean vault) | **PASS** — "Lint vault" ran; `log.md` records real drift: 3 orphans, 111 missing-provenance claims. |
+| 3 | 80% Actions-minutes check runs and would warn if triggered | **PASS** — "Compute Actions minutes" + "80% Actions-minutes alert" steps both success; no WARN line (0/2000 min). |
+| 4 | GitHub Actions spending limit confirmed $0 (would hard-stop, not bill) | **PASS** — confirmed 2026-06-21; public repo = unlimited free minutes, private repo spending limit = $0 fail-closed. |
+| 5 | Backup push to second remote succeeds | **PASS** — `* [new branch] HEAD -> main`; `pkm-vault-backup` main HEAD `97a2fc244d` mirrors pkm-vault (full tree: README, SCHEMA, _templates, dashboard.md, index.md, log.md, raw/, wiki/). |
+
+**Deferred CF-creds gap — CLOSED:** `CF_ACCOUNT_ID` + `CF_API_TOKEN` now present
+as GH Actions secrets (set 2026-06-21); the "Backfill embeddings" step now runs
+with real credentials instead of no-oping.
+
+**Known follow-up (not a Phase 7 blocker):** dashboard `Sources/Claims/Concepts`
+counters read 0 because counter rows (`dashboard_counters`, migration 003) only
+bump on NEW inserts going forward — pre-Phase-7 data (~160 claims) was never
+counted. Lint's orphan/missing-provenance counts ARE correct (they query live
+tables, not counters). A one-time counter backfill seeded from existing rows
+would make the dashboard reflect historical totals; carry into Phase 8.

@@ -171,7 +171,7 @@ Plans:
 - [x] 07-02-PLAN.md — Dashboard + Turso counter rows (migration 003) + tests (wave 1)
 - [x] 07-03-PLAN.md — CLI wiring (lint/dashboard/backfill-embeds) + backfill_embeds helper (wave 2)
 - [x] 07-04-PLAN.md — ingest.yml nightly steps (backfill, lint, dashboard, 80% alert, backup push) + GUARDRAILS runbook (wave 3)
-- [ ] 07-05-PLAN.md — Operator guardrail confirmations (GUARD-04/05/07 + CF creds) + end-to-end nightly run verification (wave 4) — **autonomous:false; pending operator**
+- [x] 07-05-PLAN.md — Operator guardrail confirmations (GUARD-04/05/07 + CF creds) + end-to-end nightly run verification (wave 4) — **autonomous:false; complete 2026-06-21**
 
 **Files to create (pkm-engine):**
 - `pkm/lint.py` — broken [[wikilinks]], orphans, missing ^cite: provenance; writes to log.md

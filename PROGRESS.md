@@ -15,7 +15,7 @@ Updated at the end of each phase. See DECISIONS.md for logged choices.
 | Phase 4: GitHub Actions Orchestration | Complete ✓ | Yes | ingest.yml dispatch workflow; VAULT_PAT + CF secrets; see PHASE4_VERIFICATION.md |
 | Phase 5: Capture Worker | Complete ✓ | Yes | worker-clip.js; X-PKM-Key auth; 13 vitest tests passing; see PHASE5_VERIFICATION.md |
 | Phase 6: Embeddings + Vector + Query Worker | Complete ✓ | Wave 1–3 | embed.py + worker-query.js + 132 tests passing; Wave 3 live CF deploy verified (160 claims embedded, end-to-end query returns cited synthesis) |
-| Phase 7: Scheduled Jobs + Guardrails | Code complete (Plans 01–04) ✓ | Plans 01–04 met; Plan 05 = operator checkpoint pending | lint.py + dashboard.py + migration 003 + backfill_embeds + CLI + ingest.yml guardrail steps + GUARDRAILS.md; 134 tests passing; Plan 05 (external console config + live nightly-run verification) is `autonomous:false`, surfaced to operator |
+| Phase 7: Scheduled Jobs + Guardrails | Complete ✓ (2026-06-21) | All 5 ROADMAP success criteria verified PASS via workflow_dispatch run 27901063045 | lint.py + dashboard.py + migration 003 + backfill_embeds + CLI + ingest.yml guardrail steps + GUARDRAILS.md; 134 tests passing; Plan 05 operator checkpoint complete (GUARD-04/05/07 + CF creds); backup remote `pkm-vault-backup` mirroring vault; two backup-push bugs fixed (extraheader override, shallow fetch-depth) |
 | Phase 8: Hardening + MVP Gate | Not started | — | Stop here; do NOT start V1 autonomously |
 
 ---
@@ -172,15 +172,34 @@ operator checkpoint — surfaced back, not executed.
 - `docs/GUARDRAILS.md`: operator runbook for GUARD-04/05/06/07 + OpenAI
   reconciliation + deferred CF-creds gap. No secret material (grep clean).
 
-### Plan 07-05 — Operator checkpoint (autonomous:false) — PENDING
-Surfaced to operator (Mode C). Requires human action:
-1. GUARD-04 — confirm GH Actions spending limit $0 (public repo = free; private
-   vault repo = $0 fail-closed).
-2. GUARD-05 — set OpenAI monthly hard spend limit (reconciled from Anthropic);
-   confirm per-run caps in `pkm/batch.py`.
-3. GUARD-07 — create backup git remote + scoped token; add `BACKUP_REMOTE_URL`
-   secret to pkm-engine.
-4. Deferred CF creds — add `CF_ACCOUNT_ID` + `CF_API_TOKEN` (Workers AI:Read +
-   Vectorize:Edit) as GitHub Actions secrets so CI embedding works.
-5. Trigger a `workflow_dispatch` run; verify the 5 ROADMAP Phase 7 success
-   criteria; record run URL + PASS/FAIL in `docs/GUARDRAILS.md` Verification section.
+### Plan 07-05 — Operator checkpoint (autonomous:false) — COMPLETE ✓ (2026-06-21)
+Operator performed the external console configurations; Claude verified the
+end-to-end nightly run from the CLI.
+1. GUARD-04 — GH Actions spending limit $0 confirmed (public repo = free;
+   private vault = $0 fail-closed).
+2. GUARD-05 — OpenAI monthly hard spend limit set in OpenAI console (reconciled
+   from stale Anthropic wording); per-run caps `PKM_RUN_COST_CAP_USD` /
+   `PKM_RUN_TOKEN_CAP` confirmed in `pkm/batch.py`.
+3. GUARD-07 — second remote `rohitgupta1686/pkm-vault-backup` created; scoped
+   fine-grained PAT (contents:read+write on backup repo only); `BACKUP_REMOTE_URL`
+   secret added to pkm-engine.
+4. Deferred CF creds — `CF_ACCOUNT_ID` + `CF_API_TOKEN` (Workers AI:Read +
+   Vectorize:Edit) added as GH Actions secrets; CI embedding now functional.
+5. `workflow_dispatch` run
+   [27901063045](https://github.com/rohitgupta1686/pkm-engine/actions/runs/27901063045)
+   — all 5 ROADMAP Phase 7 success criteria PASS. Results in
+   `docs/GUARDRAILS.md` Verification section.
+
+**Two backup-push bugs found + fixed during verification:**
+- 403 "Write access not granted" — `actions/checkout` `persist-credentials:
+  true` injects `VAULT_PAT` as `http.https://github.com/.extraheader`, which
+  overrides the backup token embedded in `BACKUP_REMOTE_URL`. Fix: clear the
+  extraheader for the backup push (commit `2e2f6ae`).
+- "remote unpack failed: index-pack failed" — `actions/checkout` default
+  `fetch-depth: 1` shallow clone lacks parent history to push to the empty
+  backup remote. Fix: `fetch-depth: 0` on the vault checkout (commit `1b857d7`).
+
+**Known follow-up (carry into Phase 8):** dashboard `Sources/Claims/Concepts`
+counters read 0 — `dashboard_counters` rows only bump on new inserts, so
+pre-Phase-7 data (~160 claims) was never counted. One-time counter backfill
+needed. Lint orphan/missing-provenance counts are correct (query live tables).
