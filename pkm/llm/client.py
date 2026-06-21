@@ -2,12 +2,24 @@ import copy
 import datetime
 import hashlib
 import json
+import logging
 import time
 import uuid
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 import openai
 from pydantic import BaseModel, ValidationError
+
+# Default and maximum completion token ceilings.
+# 4096 was the original value and is too small for long structured-JSON outputs
+# from the concept-extractor / summarizer on long articles (causes finish_reason
+# == "length" truncation → JSONDecodeError).  16384 is well within gpt-5.4-mini's
+# output window and cheap (~$0.0003 extra per article at worst).
+_DEFAULT_MAX_COMPLETION_TOKENS = 16384
+# Hard ceiling used on truncation-retry; avoids unbounded spend on a single call.
+_RETRY_MAX_COMPLETION_TOKENS = 32768
 
 from pkm.llm.models import MINI  # noqa: F401 — re-exported for callers
 from pkm.llm.pricing import compute_cost
@@ -236,19 +248,23 @@ class LLMClient:
         model: str,
         messages: list[dict],
         output_schema: type[BaseModel] | None,
+        max_completion_tokens: int = _DEFAULT_MAX_COMPLETION_TOKENS,
     ) -> tuple[object, int, int, int]:
         """
         Call chat.completions.create with exponential backoff on retryable errors.
 
         Returns (response, prompt_tokens, completion_tokens, cached_tokens).
         cached_tokens is the cached portion of prompt_tokens (0 if absent).
+
+        max_completion_tokens defaults to _DEFAULT_MAX_COMPLETION_TOKENS (16384).
+        Pass a higher value on truncation-retry (see _extract_result).
         """
         kwargs: dict[str, Any] = {
             "model": model,
             # gpt-5.x / o-series reject `max_tokens` (400 unsupported_parameter);
             # `max_completion_tokens` is the unified param OpenAI accepts across all
             # current chat-completion models. See 04-03 live-dispatch verification.
-            "max_completion_tokens": 4096,
+            "max_completion_tokens": max_completion_tokens,
             "messages": messages,
         }
 
@@ -293,15 +309,60 @@ class LLMClient:
 
         If output_schema is None: returns the message content string (text path).
         If output_schema is provided: parses the JSON string in message.content,
-        validates it, and attempts one repair-retry on ValidationError.
+        validates it, and attempts one repair-retry on:
+          - finish_reason == "length" (output truncated — retry with doubled token ceiling)
+          - JSONDecodeError (truncated/malformed JSON — same retry path as above)
+          - ValidationError (valid JSON but wrong schema — send repair prompt)
+        Any error on the second attempt propagates with a clear message.
         """
-        content = response.choices[0].message.content
+        choice = response.choices[0]
+        content = choice.message.content
+        finish_reason = getattr(choice, "finish_reason", None)
 
         if output_schema is None:
             return content or ""
 
-        raw_data = json.loads(content)
+        # --- Truncation path: finish_reason=="length" or un-parseable JSON --------
+        # Both indicate the model hit the token ceiling mid-output.  Retry with a
+        # higher ceiling (_RETRY_MAX_COMPLETION_TOKENS) from scratch (not as a
+        # repair conversation — a truncated JSON assistant turn confuses the model).
+        truncated = (finish_reason == "length")
+        if not truncated:
+            try:
+                raw_data = json.loads(content)
+            except json.JSONDecodeError:
+                truncated = True
 
+        if truncated:
+            logger.warning(
+                "_extract_result: output truncated (finish_reason=%r, content_len=%d); "
+                "retrying with max_completion_tokens=%d",
+                finish_reason,
+                len(content or ""),
+                _RETRY_MAX_COMPLETION_TOKENS,
+            )
+            retry_response, _, _, _ = self._call_api(
+                model, messages, output_schema,
+                max_completion_tokens=_RETRY_MAX_COMPLETION_TOKENS,
+            )
+            retry_choice = retry_response.choices[0]
+            retry_finish = getattr(retry_choice, "finish_reason", None)
+            retry_content = retry_choice.message.content
+            if retry_finish == "length":
+                raise RuntimeError(
+                    f"_extract_result: output still truncated after retry "
+                    f"(max_completion_tokens={_RETRY_MAX_COMPLETION_TOKENS}). "
+                    "Input may be too large; consider chunking before agent call."
+                )
+            try:
+                raw_data = json.loads(retry_content)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    f"_extract_result: JSON parse failed after truncation retry: {exc}. "
+                    f"content[:200]={retry_content[:200]!r}"
+                ) from exc
+
+        # --- Schema-validation path -----------------------------------------------
         try:
             return output_schema(**raw_data)
         except ValidationError as first_err:
@@ -319,8 +380,15 @@ class LLMClient:
             ]
             repair_response, _, _, _ = self._call_api(model, repair_messages, output_schema)
             repair_content = repair_response.choices[0].message.content
+            try:
+                repair_data = json.loads(repair_content)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    f"_extract_result: JSON parse failed on validation-repair retry: {exc}. "
+                    f"content[:200]={repair_content[:200]!r}"
+                ) from exc
             # If this also raises ValidationError, propagate — no further retries
-            return output_schema(**json.loads(repair_content))
+            return output_schema(**repair_data)
 
     def call(
         self,
