@@ -32,6 +32,10 @@ jobs:
           token: ${{ secrets.VAULT_PAT }}
           path: vault
           persist-credentials: true
+          # Full clone (not the default depth=1 shallow clone) so the GUARD-07
+          # backup push can send complete history to the empty backup remote.
+          # Vault is small markdown; workflow runs on public pkm-engine (free minutes).
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
