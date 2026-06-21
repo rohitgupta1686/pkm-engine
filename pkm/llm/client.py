@@ -188,15 +188,21 @@ class LLMClient:
     def _check_cache(self, agent_name: str, input_hash: str) -> dict | None:
         """
         Query agent_runs for a matching (agent, input_hash, status='ok') row.
-        Returns {"id": ..., "status": ...} if found, else None.
+        Returns {"id": ..., "status": ..., "output_json": ...} if found, else None.
+
+        output_json is the serialized validated output for rows written after the
+        004 migration; it is NULL for legacy rows (and for the rare ok-row whose
+        output failed to serialize). Callers use it to restore the real result on
+        a cache hit (B-05-02 durable-summary fix).
         """
         row = self.conn.execute(
-            "SELECT id, status FROM agent_runs WHERE agent = ? AND input_hash = ? AND status = 'ok'",
+            "SELECT id, status, output_json FROM agent_runs "
+            "WHERE agent = ? AND input_hash = ? AND status = 'ok'",
             (agent_name, input_hash),
         ).fetchone()
         if row is None:
             return None
-        return {"id": row[0], "status": row[1]}
+        return {"id": row[0], "status": row[1], "output_json": row[2]}
 
     def _write_run(
         self,
@@ -212,19 +218,23 @@ class LLMClient:
         error: str | None,
         started_at: str,
         finished_at: str,
+        output_json: str | None = None,
     ) -> None:
         """
         Upsert a row into agent_runs.
         INSERT OR REPLACE ensures an ok-row overwrites a prior error-row for the same
         (agent, input_hash) — INSERT OR IGNORE would silently drop the ok-row, causing
         indefinite re-execution.
+
+        output_json: serialized validated output for ok-rows (None for error-rows);
+        lets a later cache hit restore the real result with no API call (B-05-02).
         """
         self.conn.execute(
             """
             INSERT OR REPLACE INTO agent_runs
                 (id, agent, source_id, input_hash, model, tokens_in, tokens_out,
-                 cost_usd, status, error, started_at, finished_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cost_usd, status, error, started_at, finished_at, output_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -239,6 +249,7 @@ class LLMClient:
                 error,
                 started_at,
                 finished_at,
+                output_json,
             ),
         )
         self.conn.commit()
@@ -390,6 +401,44 @@ class LLMClient:
             # If this also raises ValidationError, propagate — no further retries
             return output_schema(**repair_data)
 
+    @staticmethod
+    def _serialize_result(result: Any) -> str | None:
+        """Serialize a validated agent result for persistence in agent_runs.output_json.
+
+        - pydantic BaseModel -> model_dump_json()
+        - plain string (text-path agents, output_schema=None) -> the string itself
+        - anything else / failure -> None (the row is still written; the cache hit
+          just won't be restorable and falls back to the legacy RuntimeError path)
+        """
+        try:
+            if isinstance(result, BaseModel):
+                return result.model_dump_json()
+            if isinstance(result, str):
+                return result
+        except Exception:  # noqa: BLE001 — serialization is best-effort
+            return None
+        return None
+
+    @staticmethod
+    def _restore_cached_result(
+        output_json: str | None, output_schema: type[BaseModel] | None
+    ) -> Any | None:
+        """Reconstruct an agent result from a cached output_json string.
+
+        Returns None (caller treats as "nothing to restore") when output_json is
+        absent, or when validation/parse fails — never raises, so a corrupt cache
+        row degrades to the legacy cache-hit behavior rather than crashing ingest.
+        """
+        if output_json is None:
+            return None
+        if output_schema is None:
+            # Text-path agent: the stored string IS the result.
+            return output_json
+        try:
+            return output_schema.model_validate_json(output_json)
+        except Exception:  # noqa: BLE001 — corrupt/legacy cache degrades gracefully
+            return None
+
     def call(
         self,
         agent_name: str,
@@ -402,7 +451,10 @@ class LLMClient:
     ) -> dict:
         """
         Main entry point. Returns:
-          {"cached": True, "input_hash": ...} on cache hit, or
+          {"cached": True, "input_hash": ..., "result": <restored>?} on cache hit
+            ("result" is present only when a serialized output_json could be
+            restored — i.e. the row was written after the 004 migration and an
+            output_schema is supplied to deserialize it), or
           {"cached": False, "input_hash": ..., "result": ..., "tokens_in": ..., "tokens_out": ...} on live call.
         Always writes to agent_runs (ok or error row).
         """
@@ -410,6 +462,13 @@ class LLMClient:
 
         cached = self._check_cache(agent_name, input_hash)
         if cached is not None:
+            restored = self._restore_cached_result(cached.get("output_json"), output_schema)
+            if restored is not None:
+                # B-05-02 durable-summary fix: hand the real result back so the
+                # pipeline rebuilds the page from cache with $0 API calls.
+                return {"cached": True, "input_hash": input_hash, "result": restored}
+            # Legacy ok-row (pre-004) or no output_schema: no output to restore.
+            # Preserve the historical contract — caller raises/handles cache hit.
             return {"cached": True, "input_hash": input_hash}
 
         started_at = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
@@ -433,6 +492,7 @@ class LLMClient:
                 None,
                 started_at,
                 finished_at,
+                output_json=self._serialize_result(result),
             )
             return {
                 "cached": False,

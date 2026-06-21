@@ -116,8 +116,12 @@ class BaseAgent(ABC):
           2. Build the messages list: [{"role": "user", "content": "<prompt>\\n\\n<input_text>"}]
              plus any extra_messages appended after.
           3. Delegate to llm_client.call() with all required kwargs.
-          4. If the result is a cache hit, raise RuntimeError so the pipeline knows to
-             retrieve the prior result from agent_runs instead of re-processing.
+          4. If the result is a cache hit:
+               - when LLMClient restored the prior output (result["result"] present,
+                 from agent_runs.output_json — the B-05-02 durable-summary fix),
+                 return that validated instance with no API call;
+               - otherwise (legacy ok-row with no stored output) raise RuntimeError so
+                 the pipeline recovers via its own fallback path.
           5. Return result["result"] — the validated pydantic instance produced by LLMClient.
 
         Args:
@@ -131,7 +135,8 @@ class BaseAgent(ABC):
 
         Raises:
             FileNotFoundError: If the prompt template file does not exist.
-            RuntimeError: If LLMClient returns a cache hit (caller must fetch from agent_runs).
+            RuntimeError: If LLMClient returns a cache hit with no restorable output
+                          (legacy pre-004 row); caller must fetch/recover from agent_runs.
             ValidationError: If LLMClient's repair-retry also fails schema validation.
         """
         prompt = self._load_prompt()
@@ -153,6 +158,11 @@ class BaseAgent(ABC):
         )
 
         if result.get("cached") is True:
+            if "result" in result:
+                # B-05-02: LLMClient restored the prior validated output from
+                # agent_runs.output_json — return it directly (no API call, no
+                # placeholder). The pipeline gets the REAL summary on recovery.
+                return result["result"]
             raise RuntimeError(
                 "Cache hit — caller must retrieve from agent_runs. "
                 f"input_hash={result.get('input_hash')}"

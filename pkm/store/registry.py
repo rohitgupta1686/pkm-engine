@@ -13,12 +13,28 @@ def get_migrations_dir() -> pathlib.Path:
 
 
 def _run_migrations(conn) -> None:
-    """Execute all migration files in order. IF NOT EXISTS guards make this idempotent."""
+    """Execute all migration files in order. IF NOT EXISTS guards make this idempotent.
+
+    004 uses `ALTER TABLE ... ADD COLUMN`, which SQLite cannot guard with
+    IF NOT EXISTS. On a re-connect against an already-migrated DB it raises
+    "duplicate column name"; we swallow exactly that error so migrations stay
+    idempotent. Any other error propagates.
+    """
     migrations_dir = get_migrations_dir()
-    for filename in ("001_init.sql", "002_graph_tables.sql", "003_dashboard_counters.sql"):
+    for filename in (
+        "001_init.sql",
+        "002_graph_tables.sql",
+        "003_dashboard_counters.sql",
+        "004_agent_runs_output.sql",
+    ):
         migration_path = migrations_dir / filename
         sql = migration_path.read_text()
-        conn.executescript(sql)
+        try:
+            conn.executescript(sql)
+        except Exception as exc:  # noqa: BLE001 — narrow check below, re-raise otherwise
+            if "duplicate column name" in str(exc).lower():
+                continue
+            raise
 
 
 def _now_iso() -> str:

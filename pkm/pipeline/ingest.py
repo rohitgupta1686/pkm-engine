@@ -423,7 +423,11 @@ def run_ingest(
         # Step 7: Write vault pages
         # -------------------------------------------------------------------------
         # Guard: write_source_page requires a non-None summary (for summary.thesis).
-        # If summarizer_output is None (cache hit on a forced re-run), use a minimal stub.
+        # Post B-05-02 durable-summary fix, a cache hit normally RESTORES the real
+        # SummarizerOutput from agent_runs.output_json, so summarizer_output is the
+        # real object here. This stub is the last-resort fallback only for a LEGACY
+        # ok-row written before the 004 migration (no output_json to restore) whose
+        # SummarizerAgent.run() therefore still raised RuntimeError above.
         if summarizer_output is None:
             from pkm.schemas.agent_io import SummarizerOutput as _SO
             summarizer_output = _SO(
