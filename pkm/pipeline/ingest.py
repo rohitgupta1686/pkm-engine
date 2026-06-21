@@ -187,17 +187,23 @@ def run_ingest(
     raw_path: str,
     new_only: bool = True,
     now: datetime | None = None,
+    cf_account_id: str = "",
+    cf_api_token: str = "",
 ) -> dict:
     """Run the full ingest pipeline for a single raw Markdown capture.
 
     Args:
-        conn:       libsql connection (auto-migrated, from registry.connect).
-        llm_client: LLMClient instance with .call() method.
-        vault_root: pathlib.Path to the vault root directory.
-        raw_text:   Full text of the raw capture (including front matter).
-        raw_path:   The file path that was read (stored in sources.raw_path).
-        new_only:   If True, short-circuit when source has already been processed.
-        now:        Optional fixed timestamp for deterministic testing; defaults to UTC now.
+        conn:           libsql connection (auto-migrated, from registry.connect).
+        llm_client:     LLMClient instance with .call() method.
+        vault_root:     pathlib.Path to the vault root directory.
+        raw_text:       Full text of the raw capture (including front matter).
+        raw_path:       The file path that was read (stored in sources.raw_path).
+        new_only:       If True, short-circuit when source has already been processed.
+        now:            Optional fixed timestamp for deterministic testing; defaults to UTC now.
+        cf_account_id:  Cloudflare account ID for Workers AI + Vectorize (Phase 6).
+                        Empty string = skip embed step (safe for local dev / tests).
+        cf_api_token:   CF API token with Workers AI:Read + Vectorize:Edit scope.
+                        Empty string = skip embed step.
 
     Returns:
         dict with keys:
@@ -206,6 +212,8 @@ def run_ingest(
             wiki_path   (str | None)  — None when deduped=True and no prior wiki_path
             n_claims    (int)    — 0 when deduped=True
             n_concepts  (int)    — 0 when deduped=True
+            embed       (dict)   — {embedded, skipped, failed}; all zeros when deduped=True
+                                   or CF creds are not configured
     """
     now_str = _now_iso(now)
 
@@ -251,16 +259,29 @@ def run_ingest(
                 "SELECT wiki_path FROM sources WHERE id = ?", (source_id,)
             ).fetchone()
             existing_wiki_path = row[0] if row and row[0] else None
+            if existing_wiki_path is not None:
+                # Fully processed: all agent runs complete AND wiki page exists.
+                logger.debug(
+                    "run_ingest: deduped source %s (new_only short-circuit)", source_id
+                )
+                return {
+                    "deduped": True,
+                    "source_id": source_id,
+                    "wiki_path": existing_wiki_path,
+                    "n_claims": 0,
+                    "n_concepts": 0,
+                    "embed": {"embedded": 0, "skipped": 0, "failed": 0},
+                }
+            # B-05-02: agent_runs are present but wiki_path IS NULL — the original
+            # ingest run crashed after agent execution but before vault write (e.g.
+            # the 05-03 FK bug). Fall through and re-attempt synthesis. The existing
+            # agent_runs "ok" rows mean LLMClient will return cached results
+            # (RuntimeError "cache hit") rather than making new API calls, so this
+            # re-attempt is effectively free.
             logger.debug(
-                "run_ingest: deduped source %s (new_only short-circuit)", source_id
+                "run_ingest: source %s has agent_runs but no wiki_path — re-attempting synthesis",
+                source_id,
             )
-            return {
-                "deduped": True,
-                "source_id": source_id,
-                "wiki_path": existing_wiki_path,
-                "n_claims": 0,
-                "n_concepts": 0,
-            }
 
     # -------------------------------------------------------------------------
     # Step 4: Chunk text and insert chunks
@@ -438,6 +459,29 @@ def run_ingest(
         raise
 
     # -------------------------------------------------------------------------
+    # Step 6.5: Embed claims into Cloudflare Vectorize (best-effort, after commit).
+    # Runs outside the main transaction so a CF outage never rolls back wiki pages.
+    # No-op when cf_account_id / cf_api_token are empty (local dev, tests).
+    # -------------------------------------------------------------------------
+    embed_result: dict = {"embedded": 0, "skipped": 0, "failed": 0}
+    if cf_account_id and cf_api_token and persisted_claims:
+        try:
+            from pkm.retrieval.embed import embed_claims
+            embed_result = embed_claims(
+                conn=conn,
+                claims=persisted_claims,
+                source_id=source_id,
+                raw_path=raw_path,
+                cf_account_id=cf_account_id,
+                cf_api_token=cf_api_token,
+            )
+        except Exception as exc:
+            logger.warning(
+                "run_ingest: embed step failed for source %s: %s", source_id, exc
+            )
+            embed_result = {"embedded": 0, "skipped": 0, "failed": len(persisted_claims)}
+
+    # -------------------------------------------------------------------------
     # Step 9: Return result
     # -------------------------------------------------------------------------
     return {
@@ -446,4 +490,5 @@ def run_ingest(
         "wiki_path": wiki_path,
         "n_claims": n_claims,
         "n_concepts": n_concepts,
+        "embed": embed_result,
     }

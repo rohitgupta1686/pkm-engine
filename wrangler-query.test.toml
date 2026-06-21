@@ -1,0 +1,12 @@
+name = "pkm-query"
+main = "worker-query.js"
+compatibility_date = "2026-06-01"
+
+# AI and Vectorize bindings are intentionally absent here.
+# Workers AI has no local miniflare implementation — including [ai] causes wrangler
+# to start a remote proxy session that requires CF auth, which is not available in CI.
+# Tests inject mock objects via (env as any).AI = {...} in beforeEach instead.
+# Production deployment uses wrangler-query.toml which has the real bindings.
+
+# Secrets injected by vitest.config.query.ts miniflare.bindings:
+#   PKM_KEY, TURSO_URL, TURSO_TOKEN, OPENAI_API_KEY

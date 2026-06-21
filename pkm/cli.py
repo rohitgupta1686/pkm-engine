@@ -147,7 +147,7 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
     conn = connect(settings)
     llm_client = LLMClient(conn, settings.openai_api_key, settings.openai_base_url)
 
-    # Run the pipeline
+    # Run the pipeline (CF creds optional: empty string = skip embed step)
     result = run_ingest(
         conn=conn,
         llm_client=llm_client,
@@ -155,6 +155,8 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
         raw_text=raw_text,
         raw_path=raw_path_str,
         new_only=args.new_only,
+        cf_account_id=settings.cf_account_id,
+        cf_api_token=settings.cf_api_token,
     )
 
     # Print result as JSON (T-03-09: never echo Settings or api_key)
@@ -204,6 +206,8 @@ def _cmd_batch_ingest(args: argparse.Namespace) -> None:
         new_only=args.new_only,
         run_cost_cap_usd=settings.run_cost_cap_usd,
         run_token_cap=settings.run_token_cap,
+        cf_account_id=settings.cf_account_id,
+        cf_api_token=settings.cf_api_token,
     )
 
     # Print result as JSON (T-03-09: never echo Settings or api_key)

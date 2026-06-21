@@ -53,6 +53,10 @@ jobs:
           PKM_RUN_TOKEN_CAP: "200000"
           TURSO_URL: ${{ secrets.TURSO_URL }}
           TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
+          # Phase 6: Cloudflare credentials for Workers AI embedding + Vectorize upsert.
+          # Empty string (absent secret) = embed step is skipped; ingest still completes.
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: pkm batch-ingest --new-only --vault "$GITHUB_WORKSPACE/vault"
 
       - name: Commit synthesized wiki

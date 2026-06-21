@@ -48,6 +48,8 @@ def batch_ingest(
     new_only: bool = True,
     run_cost_cap_usd: float | None = None,
     run_token_cap: int | None = None,
+    cf_account_id: str = "",
+    cf_api_token: str = "",
 ) -> dict:
     """Scan raw/**/*.md in vault_root and call run_ingest for each file.
 
@@ -60,6 +62,8 @@ def batch_ingest(
                           for this run reaches this value (abort_reason="cost_cap").
         run_token_cap:    If set, abort once cumulative tokens_in+tokens_out for this
                           run reaches this value (abort_reason="token_cap").
+        cf_account_id:    Cloudflare account ID for Phase 6 embedding (empty = skip).
+        cf_api_token:     CF API token for Phase 6 embedding (empty = skip).
 
     Returns:
         dict with keys:
@@ -128,6 +132,8 @@ def batch_ingest(
                 raw_text=raw_text,
                 raw_path=rel_path,
                 new_only=new_only,
+                cf_account_id=cf_account_id,
+                cf_api_token=cf_api_token,
             )
             processed += 1
             if result.get("deduped"):

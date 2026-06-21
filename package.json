@@ -9,7 +9,9 @@
   },
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:query": "vitest run --config vitest.config.query.ts",
+    "test:all": "vitest run && vitest run --config vitest.config.query.ts"
   },
   "repository": {
     "type": "git",
@@ -27,5 +29,8 @@
     "@cloudflare/vitest-pool-workers": "^0.16.18",
     "vitest": "^4.1.9",
     "wrangler": "^4.103.0"
+  },
+  "allowScripts": {
+    "workerd@1.20260617.1": true
   }
 }

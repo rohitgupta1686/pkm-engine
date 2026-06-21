@@ -175,9 +175,9 @@ def _insert_run(conn, cost_usd: float, tokens: int) -> None:
 def test_cap_abort_cost(db_conn, tmp_path):
     vault = _make_vault(tmp_path)
 
-    def fake_run_ingest(conn, llm_client, vault_root, raw_text, raw_path, new_only):
+    def fake_run_ingest(conn, llm_client, vault_root, raw_text, raw_path, new_only, **kwargs):
         _insert_run(conn, cost_usd=1.0, tokens=10)
-        return {"deduped": False, "source_id": "s", "wiki_path": "w", "n_claims": 0, "n_concepts": 0}
+        return {"deduped": False, "source_id": "s", "wiki_path": "w", "n_claims": 0, "n_concepts": 0, "embed": {}}
 
     with patch("pkm.batch.run_ingest", fake_run_ingest):
         result = batch_ingest(db_conn, MagicMock(), vault, run_cost_cap_usd=0.5)
@@ -189,9 +189,9 @@ def test_cap_abort_cost(db_conn, tmp_path):
 def test_cap_abort_tokens(db_conn, tmp_path):
     vault = _make_vault(tmp_path)
 
-    def fake_run_ingest(conn, llm_client, vault_root, raw_text, raw_path, new_only):
+    def fake_run_ingest(conn, llm_client, vault_root, raw_text, raw_path, new_only, **kwargs):
         _insert_run(conn, cost_usd=0.01, tokens=20)
-        return {"deduped": False, "source_id": "s", "wiki_path": "w", "n_claims": 0, "n_concepts": 0}
+        return {"deduped": False, "source_id": "s", "wiki_path": "w", "n_claims": 0, "n_concepts": 0, "embed": {}}
 
     with patch("pkm.batch.run_ingest", fake_run_ingest):
         result = batch_ingest(db_conn, MagicMock(), vault, run_token_cap=10)
@@ -203,9 +203,9 @@ def test_cap_abort_tokens(db_conn, tmp_path):
 def test_cap_not_tripped_under_limit(db_conn, tmp_path):
     vault = _make_vault(tmp_path, n_files=2)
 
-    def fake_run_ingest(conn, llm_client, vault_root, raw_text, raw_path, new_only):
+    def fake_run_ingest(conn, llm_client, vault_root, raw_text, raw_path, new_only, **kwargs):
         _insert_run(conn, cost_usd=0.01, tokens=5)
-        return {"deduped": False, "source_id": "s", "wiki_path": "w", "n_claims": 0, "n_concepts": 0}
+        return {"deduped": False, "source_id": "s", "wiki_path": "w", "n_claims": 0, "n_concepts": 0, "embed": {}}
 
     with patch("pkm.batch.run_ingest", fake_run_ingest):
         result = batch_ingest(db_conn, MagicMock(), vault,
