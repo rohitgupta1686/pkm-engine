@@ -116,7 +116,7 @@ async function synthesize(openaiKey, claims, question) {
           content: `Claims:\n${context}\n\nQuestion: ${question}`,
         },
       ],
-      max_tokens: 300,
+      max_completion_tokens: 300,
     }),
   });
   if (!resp.ok) {

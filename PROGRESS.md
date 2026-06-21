@@ -14,7 +14,7 @@ Updated at the end of each phase. See DECISIONS.md for logged choices.
 | Phase 3: Pipeline + Vault Writer + CLI | Complete ✓ | Yes | run_ingest end-to-end; GitVaultWriter; CLI ingest/batch; see PHASE3 verification |
 | Phase 4: GitHub Actions Orchestration | Complete ✓ | Yes | ingest.yml dispatch workflow; VAULT_PAT + CF secrets; see PHASE4_VERIFICATION.md |
 | Phase 5: Capture Worker | Complete ✓ | Yes | worker-clip.js; X-PKM-Key auth; 13 vitest tests passing; see PHASE5_VERIFICATION.md |
-| Phase 6: Embeddings + Vector + Query Worker | Complete ✓ | Wave 1–2 | embed.py + worker-query.js + 132 tests passing; Wave 3 (live CF deploy) pending operator steps |
+| Phase 6: Embeddings + Vector + Query Worker | Complete ✓ | Wave 1–3 | embed.py + worker-query.js + 132 tests passing; Wave 3 live CF deploy verified (160 claims embedded, end-to-end query returns cited synthesis) |
 | Phase 7: Scheduled Jobs + Guardrails | Not started | — | |
 | Phase 8: Hardening + MVP Gate | Not started | — | Stop here; do NOT start V1 autonomously |
 
@@ -104,3 +104,23 @@ wrangler secret put OPENAI_API_KEY -c wrangler-query.toml
 curl "$QUERY_WORKER_URL/query?q=what+is+operating+leverage" \
   -H "X-PKM-Key: $(cat ~/.pkm_key)"
 ```
+
+### Wave 3 COMPLETE ✓ (2026-06-21)
+
+Live deploy executed and end-to-end query verified against real data.
+
+**Done:**
+- Vectorize index `pkm-claims` created (768-dim, cosine) via `wrangler vectorize create`.
+- Query worker `pkm-query` deployed → `https://pkm-query.rohitgupta-iitr.workers.dev` (AI + VECTORIZE bindings).
+- 4 worker secrets set: `PKM_KEY`, `OPENAI_API_KEY`, `TURSO_URL`, `TURSO_TOKEN`.
+- Vectorize populated with all 160 existing claims (embeddings_meta = 160) via a one-off local backfill (`embed_claims` called per-source). 0 failed.
+- End-to-end `/query?q=what+is+operating+leverage` returns a synthesized, cited answer with a `citations[]` array (claim id, statement, source_title, raw_path, url). Full chain verified live: X-PKM-Key auth → Workers AI embed → Vectorize search → Turso HTTPS pipeline fetch → OpenAI gpt-5.4-mini synthesis.
+- `npm run test:query`: 19/19 passing after fix.
+
+**Fixes made during Wave 3 (code):**
+- `worker-query.js`: `max_tokens` → `max_completion_tokens` (gpt-5.4-mini rejects `max_tokens`; unit tests mock OpenAI so this only surfaced against the live API). Redeployed.
+- Query worker `TURSO_URL` secret must be the **HTTPS** form (`https://<db>.turso.io`), not `libsql://` — the worker does a raw `fetch(${TURSO_URL}/v2/pipeline)`, and `libsql://` is not a fetchable scheme. (The Python pipeline still uses `libsql://` via the libsql driver; the two clients use different schemes — both correct for their client.)
+
+**Deviations from checklist & deferred gaps:**
+- Step 2 (GH Actions secrets `CF_ACCOUNT_ID` + `CF_API_TOKEN`) was **skipped**. Vectorize was populated via a local backfill using the wrangler OAuth token (valid for Workers AI + Vectorize REST), not via a CI ingest run. **Consequence:** the CI ingest workflow still has no CF creds, so future CI ingests will skip the embed step (Step 6.5 no-op) and new sources will NOT be auto-embedded. To wire CI embedding, add `CF_ACCOUNT_ID` + a scoped `CF_API_TOKEN` (Workers AI:Read + Vectorize:Edit) as GitHub Actions secrets — this is a remaining operator step, deferred to Phase 7 (Scheduled Jobs + Guardrails) or a follow-up. A reusable `pkm backfill-embeds` command is a candidate Phase 7 addition.
+- Step 5 used backfill of existing claims rather than firing a fresh ingest; functionally equivalent for query-worker verification.
