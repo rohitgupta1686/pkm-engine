@@ -52,6 +52,17 @@ counters read 0 — `dashboard_counters` rows only bump on new inserts, so
 pre-Phase-7 data (~160 claims) was never counted. One-time counter backfill
 needed. Lint orphan/missing-provenance counts are correct (query live tables).
 
+### Current: Phase 8 — Hardening + MVP Gate — evidence gathered; PAUSED at MVP gate (2026-06-21)
+
+Plans 08-01 + 08-02 (Wave 1, autonomous) and 08-03 Task 1 (live evidence) executed autonomously on 2026-06-21. All six MVP criteria PASS on the evidence; Claude has NOT declared MVP-ready (Type-1 human call).
+
+- 08-01: `seed_counters_from_live_counts` + `pkm backfill-counters` CLI + 3 tests; live backfill set `sources_total=7, claims_total=160, concepts_total=40` (Phase-7 carry-in closed). pytest 137 / npm clip 13 / npm query 19, 0 failed (MVP-05). MVP-03 hard gate `broken_wikilinks=0` PASS; missing-provenance=111 carried as accepted limitation (T2-05-04).
+- 08-02: PROGRESS.md Cost Actuals filled (MVP-06: 4 infra rows $0 + OpenAI $0.35/mo from live `SUM(cost_usd)`); DECISIONS.md "Phase 8 MVP-gate review" (T1-01 reaffirm, T1-02 three-condition PASS); STATE.md CF-creds reconciled to CLOSED.
+- 08-03 Task 1: MVP-01/02/04 evidence appended to `docs/PHASE8_VERIFICATION.md` (cited from Phase 5 / Phase 6 Wave 3 live runs + fresh corroboration).
+- 08-03 Task 2: `08-MVP-REVIEW.md` brief written — **PAUSED at blocking checkpoint:human-verify** for the human's MVP-ready judgment (`MVP-ready` / `MVP-ready with limitations: <list>` / `NOT-ready: <criterion + remediation>`). Do NOT start V1.
+
+See `docs/PHASE8_VERIFICATION.md`, `.planning/phases/08-hardening-mvp-gate/08-MVP-REVIEW.md`, and the `08-0{1,2,3}-SUMMARY.md` files.
+
 ### Prior: Phase 6 — Embeddings + Vector + Query Worker — COMPLETE ✓ (Wave 1–3)
 
 - `pkm/retrieval/embed.py`: Workers AI REST + Vectorize NDJSON upsert, idempotent
@@ -73,7 +84,7 @@ needed. Lint orphan/missing-provenance counts are correct (query live tables).
 | Phase 5: Capture Worker | Complete ✓ | 2026-06-17 |
 | Phase 6: Embeddings + Vector + Query Worker | Code complete ✓ (Wave 1–2; Wave 3 = live CF deploy pending operator) | 2026-06-21 |
 | Phase 7: Scheduled Jobs + Guardrails | Complete ✓ | 2026-06-21 |
-| Phase 8: Hardening + MVP Gate | Not started — **next; stop here; do NOT start V1 autonomously** | — |
+| Phase 8: Hardening + MVP Gate | Evidence gathered — **PAUSED at MVP gate for human judgment (2026-06-21)**; all 6 criteria PASS on evidence; do NOT start V1 autonomously | 2026-06-21 (evidence) |
 
 ## Open Items
 
