@@ -220,3 +220,66 @@ a 04-04 gate.
 Relates to memory `project-pkm-llm-backend-decision` (resolved).
 
 ---
+
+## Phase 8 MVP-gate review (2026-06-21)
+
+Recorded at the Phase 8 MVP gate. This section records **dispositions and
+condition verification only** — it does NOT lock any new Type-1 decision. The
+MVP-ready / V1-advancement call is a human judgment reserved for the
+`08-MVP-REVIEW.md` checkpoint (Type-1, irreversible per CLAUDE.md "Stop at MVP
+gate"). Language here is "reaffirm" / "PASS" / "carried to MVP review", never
+"locked".
+
+### T1-01 — Vectorize over Turso native vectors
+
+**Disposition: reaffirm.** Turso native vectors have not reached parity on the
+edge-query-worker use case. Vectorize is live and load-bearing: the
+`pkm-claims` Vectorize index was created and 160 claims embedded in Phase 6
+Wave 3; `worker-query.js` (deployed `https://pkm-query.rohitgupta-iitr.workers.dev`)
+depends on it for embed → search → synthesis. No change at the MVP gate.
+
+### T1-02 — OpenAI GPT-5.4-mini backend (locked 2026-06-19)
+
+Three locked conditions, each verified against the current code (file:line):
+
+1. **Dispatch = sync API, not Batch — PASS.**
+   `.github/workflows/ingest.yml:20` → `timeout-minutes: 10`, matching the
+   locked `<10-minute` dispatch budget. `pkm/llm/client.py` uses the
+   synchronous Chat Completions endpoint (`_call_api` → `client.chat.completions`);
+   no Batch API call exists in the codebase. The 24h-async Batch path remains
+   deferred and does not claim the `<10-min` criterion.
+
+2. **cost_usd computed from usage, not hardcoded 0.0 — PASS.**
+   `pkm/llm/client.py:352` → `cost_usd = compute_cost(model, tokens_in,
+   cached_tokens, tokens_out)`. `pkm/llm/pricing.py:40` → `p = PRICING[model]`
+   raises `KeyError` on unknown model (fail-loud, never returns 0.0 — the
+   original `client.py:220` blocker cited in the lock is resolved). This is
+   load-bearing for MVP-06: the cost actuals in `PROGRESS.md` are derived from
+   the real `agent_runs.cost_usd` values this path writes (see PROGRESS.md
+   "Cost Actuals" — `SUM(cost_usd) FROM agent_runs`).
+
+3. **Cache-bust accepted — PASS.**
+   `pkm/llm/client.py:168-174` → `_make_input_hash(agent_name, model,
+   prompt_version, input_text)` includes the model string in the SHA-256 cache
+   key, so the model change busts every `agent_runs` ok-row. The one-time full
+   re-ingest has occurred — the ~160-claim corpus reflects post-switch ingest
+   (Phase 6 Wave 3). The durable cache-versioning fix (separating model
+   identity from cache validity) remains deferred as noted in the lock.
+
+**All three conditions PASS. No revision to T1-02 at the MVP gate.**
+
+### Tier-1-class items accumulated since Phase 1 — carried to MVP review
+
+- **[T2-05-04] drop-FK / free-text-provenance deferral — carried to MVP review.**
+  The current ingest path resolves `claims.chunk_id` heuristically (`para_N →
+  ordinal`; everything else → SQL NULL), so provenance is best-effort and some
+  claims land on NULL `chunk_id` (the missing-provenance count recorded in
+  `docs/PHASE8_VERIFICATION.md` MVP-03). T2-05-04 explicitly defers the
+  drop-FK / free-text-provenance alternative to MVP review **as a Type-1
+  contract change**. It is NOT locked here; the human decides at the
+  `08-MVP-REVIEW.md` checkpoint whether to accept the best-effort limitation
+  for MVP or pursue the contract change in V1.
+
+No other Tier-1-class decisions found outside the Tier-1 Batch section.
+
+---

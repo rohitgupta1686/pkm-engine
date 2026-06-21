@@ -37,8 +37,10 @@ Plans 01–04 executed autonomously (YOLO) on 2026-06-21. `pytest` → 134 passe
 **Plan 07-05 (autonomous:false) — COMPLETE ✓ (2026-06-21):** operator performed the
 external console configurations (GUARD-04 GH spending limit $0; GUARD-05 OpenAI
 monthly hard limit; GUARD-07 second remote `rohitgupta1686/pkm-vault-backup` +
-scoped PAT + `BACKUP_REMOTE_URL` secret; deferred `CF_ACCOUNT_ID`/`CF_API_TOKEN`
-GH secrets). Claude verified end-to-end via `workflow_dispatch` run
+scoped PAT + `BACKUP_REMOTE_URL` secret; `CF_ACCOUNT_ID` + `CF_API_TOKEN` GH
+secrets added (scoped Workers AI:Read + Vectorize:Edit) — CLOSED 2026-06-21 per
+docs/GUARDRAILS.md lines 151-152, 195-196). Claude verified end-to-end via
+`workflow_dispatch` run
 [27901063045](https://github.com/rohitgupta1686/pkm-engine/actions/runs/27901063045)
 — all 5 ROADMAP Phase 7 success criteria PASS. Two backup-push bugs found and
 fixed during verification (checkout `extraheader` override → 403; shallow
@@ -56,7 +58,7 @@ needed. Lint orphan/missing-provenance counts are correct (query live tables).
 - `worker-query.js`: embed → search → Turso → OpenAI synthesis, X-PKM-Key auth
 - `pytest`: 100 passed (incl. 14 new embed tests); `npm run test:query`: 19 query-worker tests
 - B-05-02 stuck-source bug fixed in run_ingest (wiki_path IS NOT NULL guard)
-- **Wave 3 (live CF deploy) COMPLETE ✓ (2026-06-21)**: Vectorize index `pkm-claims` created + 160 claims embedded; query worker deployed to `https://pkm-query.rohitgupta-iitr.workers.dev` with 4 secrets; end-to-end `/query` returns cited synthesis. Fixes: `max_tokens`→`max_completion_tokens`; worker `TURSO_URL` must be HTTPS form. **Deferred:** CI ingest still lacks CF creds (`CF_ACCOUNT_ID`/`CF_API_TOKEN` GH secrets) so future CI ingests skip embed — carry into Phase 7. See `PROGRESS.md` Phase 6 section.
+- **Wave 3 (live CF deploy) COMPLETE ✓ (2026-06-21)**: Vectorize index `pkm-claims` created + 160 claims embedded; query worker deployed to `https://pkm-query.rohitgupta-iitr.workers.dev` with 4 secrets; end-to-end `/query` returns cited synthesis. Fixes: `max_tokens`→`max_completion_tokens`; worker `TURSO_URL` must be HTTPS form. **CF-creds gap — CLOSED (2026-06-21):** `CF_ACCOUNT_ID` + `CF_API_TOKEN` set as GH Actions secrets per docs/GUARDRAILS.md lines 151-152, 195-196, so CI ingest embed/backfill steps now run with real credentials instead of no-oping. See `PROGRESS.md` Phase 6 section.
 
 **Prior phases — all COMPLETE ✓** (see Phase History below and `PROGRESS.md` for DoD evidence).
 
@@ -83,7 +85,7 @@ needed. Lint orphan/missing-provenance counts are correct (query live tables).
   - [x] VAULT_PAT (fine-grained PAT, contents:write on pkm-vault only) — confirmed in Phase 4 verification
   - [x] GitHub Actions spending limit = $0 (public repo = unlimited free minutes)
   - [x] Cloudflare account + CF_ACCOUNT_ID + scoped API token — worker-clip.js deployed & verified in Phase 5
-- ~~Phase 6 Wave 3 outstanding~~ → **COMPLETE (2026-06-21)**. Live deploy + end-to-end query verified. Remaining: add `CF_ACCOUNT_ID` + scoped `CF_API_TOKEN` as GitHub Actions secrets so CI ingest auto-embeds new sources (deferred to Phase 7); see `PROGRESS.md` Phase 6 section.
+- ~~Phase 6 Wave 3 outstanding~~ → **COMPLETE (2026-06-21)**. Live deploy + end-to-end query verified. `CF_ACCOUNT_ID` + `CF_API_TOKEN` GitHub Actions secrets: CLOSED (set 2026-06-21 per docs/GUARDRAILS.md lines 151-152, 195-196) — the CI "Backfill embeddings" step now runs with real credentials so new sources auto-embed. See `PROGRESS.md` Phase 6 section.
 
 ## Phase 1 Decisions (Wave 1)
 
