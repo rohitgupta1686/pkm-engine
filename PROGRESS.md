@@ -15,7 +15,7 @@ Updated at the end of each phase. See DECISIONS.md for logged choices.
 | Phase 4: GitHub Actions Orchestration | Complete ✓ | Yes | ingest.yml dispatch workflow; VAULT_PAT + CF secrets; see PHASE4_VERIFICATION.md |
 | Phase 5: Capture Worker | Complete ✓ | Yes | worker-clip.js; X-PKM-Key auth; 13 vitest tests passing; see PHASE5_VERIFICATION.md |
 | Phase 6: Embeddings + Vector + Query Worker | Complete ✓ | Wave 1–3 | embed.py + worker-query.js + 132 tests passing; Wave 3 live CF deploy verified (160 claims embedded, end-to-end query returns cited synthesis) |
-| Phase 7: Scheduled Jobs + Guardrails | Not started | — | |
+| Phase 7: Scheduled Jobs + Guardrails | Code complete (Plans 01–04) ✓ | Plans 01–04 met; Plan 05 = operator checkpoint pending | lint.py + dashboard.py + migration 003 + backfill_embeds + CLI + ingest.yml guardrail steps + GUARDRAILS.md; 134 tests passing; Plan 05 (external console config + live nightly-run verification) is `autonomous:false`, surfaced to operator |
 | Phase 8: Hardening + MVP Gate | Not started | — | Stop here; do NOT start V1 autonomously |
 
 ---
@@ -124,3 +124,63 @@ Live deploy executed and end-to-end query verified against real data.
 **Deviations from checklist & deferred gaps:**
 - Step 2 (GH Actions secrets `CF_ACCOUNT_ID` + `CF_API_TOKEN`) was **skipped**. Vectorize was populated via a local backfill using the wrangler OAuth token (valid for Workers AI + Vectorize REST), not via a CI ingest run. **Consequence:** the CI ingest workflow still has no CF creds, so future CI ingests will skip the embed step (Step 6.5 no-op) and new sources will NOT be auto-embedded. To wire CI embedding, add `CF_ACCOUNT_ID` + a scoped `CF_API_TOKEN` (Workers AI:Read + Vectorize:Edit) as GitHub Actions secrets — this is a remaining operator step, deferred to Phase 7 (Scheduled Jobs + Guardrails) or a follow-up. A reusable `pkm backfill-embeds` command is a candidate Phase 7 addition.
 - Step 5 used backfill of existing claims rather than firing a fresh ingest; functionally equivalent for query-worker verification.
+
+---
+
+## Phase 7 Code Complete — Plans 01–04 (2026-06-21)
+
+Plans 01–04 executed autonomously (YOLO). Plan 05 is the `autonomous:false`
+operator checkpoint — surfaced back, not executed.
+
+**Suite:** `pytest` → 134 passed (was 100 at Phase 7 start; +34 new tests).
+
+### Plan 07-01 — Lint module (GUARD-01) ✓
+- `pkm/lint.py`: `lint_vault(conn, vault_root, write_log=True, now=None) -> LintReport`
+  — broken `[[wikilinks]]` (handles `[[slug|alias]]`), orphans (not referenced by
+  another page AND not in index.md), missing provenance (`claims WHERE chunk_id IS
+  NULL`, parameterized). `lint ok` / `lint FAIL broken=N orphan=N
+  missing_provenance=N` block to log.md via `append_log`.
+- `tests/test_lint.py`: 13 tests. `grep -c COUNT pkm/lint.py` = 0.
+
+### Plan 07-02 — Dashboard + counter rows (GUARD-02, GUARD-03) ✓
+- `migrations/sqlite/003_dashboard_counters.sql` (key, value, updated_at).
+- `pkm/store/registry.py`: `bump_counter` / `read_counter` / `read_all_counters`;
+  migration 003 added to `_run_migrations`; bumps wired into `upsert_source` /
+  `upsert_concept` (created-guarded) / `insert_claim` (always). Idempotent re-ingest
+  leaves counters stable (verified).
+- `pkm/dashboard.py`: `generate_dashboard` / `write_dashboard` — six sections from
+  counter rows + `lint_vault(..., write_log=False)`. No `COUNT(*) FROM
+  sources|claims|concepts` (grep = 0; spy-verified).
+- `tests/test_dashboard.py`: 16 tests.
+
+### Plan 07-03 — CLI + backfill_embeds (GUARD-01, GUARD-02) ✓
+- `pkm/retrieval/embed.py`: `backfill_embeds` — reusable idempotent backfill for
+  claims lacking `embeddings_meta` (one pass per run; empty-creds no-op; delegates
+  to `embed_claims`). Closes the deferred Phase-6 CI-embed gap.
+- `pkm/cli.py`: `pkm lint` (exit 1 on dirty vault), `pkm dashboard`, `pkm
+  backfill-embeds` (exit 1 on failures). Handlers print only result dicts — never
+  Settings/api_key.
+- `tests/test_backfill_embeds.py`: 5 tests. Functional smoke verified (clean/dirty
+  lint exit codes, dashboard.md write, no-creds backfill no-op).
+
+### Plan 07-04 — ingest.yml nightly steps + GUARDRAILS.md (GUARD-06, GUARD-07) ✓
+- `.github/workflows/ingest.yml`: +7 steps after batch-ingest — backfill-embeds,
+  lint, compute actions-minutes, regenerate dashboard, 80% alert (log.md WARN),
+  commit guardrail artifacts, backup push to `secrets.BACKUP_REMOTE_URL`.
+  `continue-on-error` on backfill/lint/backup; `if: always()` on backfill/backup;
+  `permissions: contents: read` preserved (backup uses BACKUP_REMOTE_URL credential).
+- `docs/GUARDRAILS.md`: operator runbook for GUARD-04/05/06/07 + OpenAI
+  reconciliation + deferred CF-creds gap. No secret material (grep clean).
+
+### Plan 07-05 — Operator checkpoint (autonomous:false) — PENDING
+Surfaced to operator (Mode C). Requires human action:
+1. GUARD-04 — confirm GH Actions spending limit $0 (public repo = free; private
+   vault repo = $0 fail-closed).
+2. GUARD-05 — set OpenAI monthly hard spend limit (reconciled from Anthropic);
+   confirm per-run caps in `pkm/batch.py`.
+3. GUARD-07 — create backup git remote + scoped token; add `BACKUP_REMOTE_URL`
+   secret to pkm-engine.
+4. Deferred CF creds — add `CF_ACCOUNT_ID` + `CF_API_TOKEN` (Workers AI:Read +
+   Vectorize:Edit) as GitHub Actions secrets so CI embedding works.
+5. Trigger a `workflow_dispatch` run; verify the 5 ROADMAP Phase 7 success
+   criteria; record run URL + PASS/FAIL in `docs/GUARDRAILS.md` Verification section.
