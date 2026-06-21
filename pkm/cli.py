@@ -84,6 +84,72 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to the vault root directory. Defaults to VAULT_PATH from settings.",
     )
 
+    # -- lint subcommand (Phase 7 / GUARD-01) ---------------------------------
+    lint_parser = subparsers.add_parser(
+        "lint",
+        help="Lint the vault: broken wikilinks, orphans, missing provenance.",
+        description=(
+            "Run the nightly lint checks against the vault and append the result "
+            "to log.md. Exits 1 if the vault is dirty (so the workflow step surfaces it)."
+        ),
+    )
+    lint_parser.add_argument(
+        "--vault",
+        metavar="PATH",
+        default=None,
+        help="Path to the vault root directory. Defaults to VAULT_PATH from settings.",
+    )
+    lint_parser.add_argument(
+        "--no-log",
+        action="store_true",
+        default=False,
+        help="Do not append the lint result to vault/log.md.",
+    )
+
+    # -- dashboard subcommand (Phase 7 / GUARD-02) ----------------------------
+    dashboard_parser = subparsers.add_parser(
+        "dashboard",
+        help="Regenerate vault/dashboard.md from counter rows + lint counts.",
+        description=(
+            "Render dashboard.md with sources/claims/concepts/insights-accepted/"
+            "actions-minutes/orphan-stale counts and write it to the vault."
+        ),
+    )
+    dashboard_parser.add_argument(
+        "--vault",
+        metavar="PATH",
+        default=None,
+        help="Path to the vault root directory. Defaults to VAULT_PATH from settings.",
+    )
+    dashboard_parser.add_argument(
+        "--actions-minutes",
+        type=int,
+        default=None,
+        help="Actions minutes used this month (rendered as N/A if omitted).",
+    )
+
+    # -- backfill-embeds subcommand (Phase 7 / GUARD-02) ----------------------
+    backfill_parser = subparsers.add_parser(
+        "backfill-embeds",
+        help="Embed claims lacking a Vectorize embedding (idempotent).",
+        description=(
+            "Embed every claim without an embeddings_meta row into Cloudflare "
+            "Vectorize. No-op without CF creds. Exits 1 if any claim fails to embed."
+        ),
+    )
+    backfill_parser.add_argument(
+        "--vault",
+        metavar="PATH",
+        default=None,
+        help="Path to the vault root directory. Defaults to VAULT_PATH from settings.",
+    )
+    backfill_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        help="Number of claims to embed per batch (default 100).",
+    )
+
     return parser
 
 
@@ -100,6 +166,12 @@ def app() -> None:
         _cmd_ingest(args)
     elif args.subcommand == "batch-ingest":
         _cmd_batch_ingest(args)
+    elif args.subcommand == "lint":
+        _cmd_lint(args)
+    elif args.subcommand == "dashboard":
+        _cmd_dashboard(args)
+    elif args.subcommand == "backfill-embeds":
+        _cmd_backfill_embeds(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -214,5 +286,87 @@ def _cmd_batch_ingest(args: argparse.Namespace) -> None:
     print(json.dumps(result, indent=2))
 
     # Exit non-zero if any file failed (so the workflow step surfaces failures)
+    if result["failed"] > 0:
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 subcommands: lint, dashboard, backfill-embeds
+# ---------------------------------------------------------------------------
+
+
+def _resolve_vault_root(args: argparse.Namespace, settings) -> str:
+    """Return the vault root from the CLI flag or settings, or error out."""
+    vault_root = args.vault or settings.vault_path
+    if not vault_root:
+        print(
+            "ERROR: VAULT_PATH is not set. "
+            "Add it to your .env file, set the VAULT_PATH environment variable, "
+            "or pass --vault PATH on the command line.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return vault_root
+
+
+def _cmd_lint(args: argparse.Namespace) -> None:
+    """Execute the lint subcommand (GUARD-01)."""
+    from pkm.config import Settings
+    from pkm.lint import lint_vault
+    from pkm.store.registry import connect
+
+    settings = Settings()
+    vault_root = _resolve_vault_root(args, settings)
+    conn = connect(settings)
+
+    report = lint_vault(conn, Path(vault_root), write_log=not args.no_log)
+
+    # T-03-09: print only counts/flags — never Settings or api_key.
+    print(json.dumps({
+        "broken_wikilinks": len(report.broken_wikilinks),
+        "orphans": len(report.orphans),
+        "missing_provenance": len(report.missing_provenance),
+        "is_clean": report.is_clean,
+    }))
+
+    # Exit 1 on a dirty vault so the workflow step surfaces it.
+    if not report.is_clean:
+        sys.exit(1)
+
+
+def _cmd_dashboard(args: argparse.Namespace) -> None:
+    """Execute the dashboard subcommand (GUARD-02)."""
+    from pkm.config import Settings
+    from pkm.dashboard import write_dashboard
+    from pkm.store.registry import connect
+
+    settings = Settings()
+    vault_root = _resolve_vault_root(args, settings)
+    conn = connect(settings)
+
+    path = write_dashboard(conn, Path(vault_root), actions_minutes=args.actions_minutes)
+    print(json.dumps({"dashboard": path}))
+
+
+def _cmd_backfill_embeds(args: argparse.Namespace) -> None:
+    """Execute the backfill-embeds subcommand (closes the Phase 6 embed gap)."""
+    from pkm.config import Settings
+    from pkm.retrieval.embed import backfill_embeds
+    from pkm.store.registry import connect
+
+    settings = Settings()
+    # backfill_embeds reads claims + sources from the DB; it does not touch the
+    # vault, so --vault is accepted but not required here.
+    conn = connect(settings)
+
+    result = backfill_embeds(
+        conn,
+        settings.cf_account_id,
+        settings.cf_api_token,
+        batch_size=args.batch_size,
+    )
+    print(json.dumps(result))
+
+    # Mirror batch-ingest: exit non-zero if any claim failed to embed.
     if result["failed"] > 0:
         sys.exit(1)
