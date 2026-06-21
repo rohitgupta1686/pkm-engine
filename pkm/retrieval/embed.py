@@ -175,3 +175,91 @@ def embed_claims(
         embedded, skipped, failed, source_id,
     )
     return {"embedded": embedded, "skipped": skipped, "failed": failed}
+
+
+def backfill_embeds(
+    conn,
+    cf_account_id: str,
+    cf_api_token: str,
+    index_name: str = "pkm-claims",
+    batch_size: int = 100,
+) -> dict:
+    """Embed every claim that does not yet have an embeddings_meta row.
+
+    The reusable, idempotent replacement for the throwaway Phase-6 Wave 3
+    backfill script. Closes the deferred gap where CI-ingested claims lack
+    Vectorize embeddings because CF creds were absent: once CF_ACCOUNT_ID /
+    CF_API_TOKEN are configured (Plan 05 checkpoint), the nightly workflow runs
+    this so the query worker stays complete.
+
+    Empty-creds guard: no-op (zeros) when cf_account_id or cf_api_token is empty
+    — same guard as embed_claims, so this is safe to run unconditionally.
+
+    Args:
+        conn:           libsql connection.
+        cf_account_id:  Cloudflare account ID.
+        cf_api_token:   CF API token (Workers AI:Read + Vectorize:Edit).
+        index_name:     Vectorize index name (default "pkm-claims").
+        batch_size:     How many missing claims to fetch + embed per iteration.
+
+    Returns:
+        dict with keys embedded / skipped / failed.
+            embedded — claims embedded and upserted this call
+            skipped  — claims that already had an embeddings_meta row (nothing to do)
+            failed   — claims whose embed/upsert raised an error
+    """
+    if not cf_account_id or not cf_api_token:
+        logger.debug("backfill_embeds: CF creds not set — skipping (no-op)")
+        return {"embedded": 0, "skipped": 0, "failed": 0}
+
+    # Claims already embedded (reported as skipped — nothing to do for them).
+    already = conn.execute(
+        "SELECT COUNT(*) FROM claims c JOIN embeddings_meta e ON e.object_id = c.id"
+    ).fetchone()[0]
+    skipped = int(already)
+
+    # Fetch every claim lacking an embeddings_meta row, joining sources for the
+    # raw_path needed in vector metadata. One pass per run: a claim whose embed
+    # call fails stays missing and is retried on the NEXT nightly run (idempotent
+    # by construction — no infinite retry loop within a single run).
+    rows = conn.execute(
+        "SELECT c.id, c.statement, c.source_id, s.raw_path "
+        "FROM claims c "
+        "LEFT JOIN embeddings_meta e ON e.object_id = c.id "
+        "JOIN sources s ON s.id = c.source_id "
+        "WHERE e.object_id IS NULL "
+        "ORDER BY c.id",
+    ).fetchall()
+
+    # Group by source so each embed_claims call writes correct per-source vector
+    # metadata (source_id + raw_path), then chunk each group by batch_size.
+    groups: dict[str, dict] = {}
+    for cid, statement, source_id, raw_path in rows:
+        g = groups.setdefault(source_id, {"raw_path": raw_path, "claims": []})
+        g["claims"].append(
+            {"id": cid, "statement": statement, "source_id": source_id, "raw_path": raw_path}
+        )
+
+    embedded = 0
+    failed = 0
+    for source_id, g in groups.items():
+        claims = g["claims"]
+        for i in range(0, len(claims), batch_size):
+            chunk = claims[i : i + batch_size]
+            res = embed_claims(
+                conn,
+                chunk,
+                source_id,
+                g["raw_path"],
+                cf_account_id,
+                cf_api_token,
+                index_name,
+            )
+            embedded += res["embedded"]
+            failed += res["failed"]
+            skipped += res["skipped"]
+
+    logger.debug(
+        "backfill_embeds: embedded=%d skipped=%d failed=%d", embedded, skipped, failed
+    )
+    return {"embedded": embedded, "skipped": skipped, "failed": failed}
