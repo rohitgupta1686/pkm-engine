@@ -39,6 +39,23 @@ def test_order_flash_models_version_desc_full_before_lite():
     ]
 
 
+def test_order_flash_models_excludes_non_text_variants():
+    """Image/TTS/audio/vision/embedding/live Flash variants advertise
+    generateContent but can't do text synthesis — they must be dropped so the
+    fallback chain never lands on one."""
+    ids = [
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-image",
+        "gemini-3.1-flash-image-preview",
+        "gemini-3.1-flash-tts-preview",
+        "gemini-2.5-flash-image",
+        "gemini-2.5-flash-preview-tts",
+        "gemini-2.0-flash-live-001",
+        "gemini-2.5-flash",
+    ]
+    assert order_flash_models(ids) == ["gemini-3.5-flash", "gemini-2.5-flash"]
+
+
 def test_to_gemini_schema_strips_unsupported_and_inlines_refs():
     class Inner(BaseModel):
         n: int
