@@ -19,11 +19,13 @@ permissions:
 
 jobs:
   run:
-    # 25m (was 10m): concept synthesis adds a per-concept LLM loop, so a batch of
-    # several new/re-synthesized sources exceeds 10m. Public repo → unlimited free
-    # Actions minutes, so this stays $0.
+    # 40m ceiling (was 25m): a batch of several FRESH sources runs 4 agents +
+    # the per-concept synthesis loop each, and Gemini free-tier rate limits add
+    # backoff. The commit step only runs after the whole batch, so the ceiling
+    # must clear the slowest expected batch. It's a max, not a fixed duration —
+    # fast nightly runs finish early. Public repo → unlimited free minutes, $0.
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
 
     steps:
       - name: Checkout engine code
