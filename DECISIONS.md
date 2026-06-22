@@ -283,3 +283,41 @@ Three locked conditions, each verified against the current code (file:line):
 No other Tier-1-class decisions found outside the Tier-1 Batch section.
 
 ---
+
+---
+
+## 2026-06-22 — LLM provider abstraction + Gemini (free tier) as default
+
+**Decision (Type-2, reversible by one config flag — flagged for MVP review as a
+vendor-surface change).** Operator directed moving LLM calls to Google AI Studio
+(Gemini Flash, free tier) to hold the $0 goal on inference. Implemented as a
+provider abstraction so OpenAI remains pluggable.
+
+- **Shared orchestration** (`pkm/llm/base_client.py::BaseLLMClient`): hash cache,
+  `agent_runs` writes, validate→truncation-retry→repair-retry, cost hook — vendor
+  independent. `call(...)` contract unchanged, so the 4 agents + concept synthesis
+  are untouched.
+- **Providers**: `pkm/llm/client.py::LLMClient` (OpenAI, refactored onto the base,
+  test patch points preserved) and `pkm/llm/gemini_client.py::GeminiClient`
+  (native Gemini REST over httpx). Selected via `pkm/llm/factory.build_llm_client`
+  from `settings.llm_provider` ("gemini" default | "openai").
+- **Model selection**: agents pass the logical sentinel `gemini-flash-auto`
+  (stable cache key); `GeminiClient` lists Flash models at startup (logged) and
+  tries them in DECREASING version order (3.5 → 3.1 → 3 → 2.5 …, full flash before
+  flash-lite), falling back on failure. Concrete model recorded in
+  `agent_runs.model`.
+- **Cost**: `GeminiClient._cost` returns 0.0 (free tier). Reverses the OpenAI
+  ~$0.35/mo line in PROGRESS.md for forward ingestions.
+- **Cache / re-ingest**: per operator, existing pages stay as-is — Gemini applies
+  only to FORWARD ingestions. Existing sources dedup-skip (`--new-only` +
+  `wiki_path` set) and never reach the model-keyed cache, so no re-ingest is
+  triggered by the provider switch.
+- **CI**: `ingest.yml` wires `GEMINI_API_KEY` + `PKM_LLM_PROVIDER`, but is pinned
+  to `openai` until the operator adds the `GEMINI_API_KEY` secret (Claude cannot
+  mint the key — requires the operator's Google login). Flip to `gemini` after the
+  secret exists.
+- **Tests**: +9 (`tests/test_gemini_client.py`); 173 pass. Worker `/query`
+  synthesis still on OpenAI (out of scope this change).
+
+**Constraint note (rate limits):** Gemini free tier is RPM/RPD-limited; the
+existing exponential backoff absorbs 429s (slower batches, not failures).
