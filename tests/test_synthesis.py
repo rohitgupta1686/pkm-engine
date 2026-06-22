@@ -145,6 +145,26 @@ class TestSourcePageSynthesisRendering:
         assert "## Summary" in content
         assert "This is the first synthesis paragraph" in content
 
+    def test_source_page_renders_bulleted_synthesis(self, db_conn, vault_root):
+        """A scannable bullet-list synthesis (v3 format) renders as bullets under
+        ## Summary, with a blank line before the first bullet so markdown lists work."""
+        from pkm.store.vault import write_source_page
+        from pkm.store.registry import upsert_source
+        record = _make_source_record()
+        upsert_source(db_conn, record)
+        summary = _make_summary_with_synthesis()
+        summary.synthesis = (
+            "- **Strong quarter:** Margins hit 87%.\n"
+            "- **Why it matters:** Demand for cutting-edge capacity is high.\n"
+            "- **The risk:** Geopolitics threatens 2026."
+        )
+        claims = [{"statement": c.statement, "chunk_id": c.chunk_id} for c in summary.key_claims]
+        wiki_path = write_source_page(db_conn, vault_root, record, summary, claims, [])
+        content = (vault_root / wiki_path).read_text()
+        # Blank line between the heading and the first bullet (markdown list renders).
+        assert "## Summary\n\n- **Strong quarter:**" in content
+        assert "- **The risk:** Geopolitics threatens 2026." in content
+
     def test_source_page_no_null_anchors(self, db_conn, vault_root):
         """The rendered source page contains no '#null' in any claim bullet."""
         from pkm.store.vault import write_source_page

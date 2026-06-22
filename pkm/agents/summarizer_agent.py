@@ -26,8 +26,8 @@ class SummarizerAgent(BaseAgent):
 
     role: ClassVar[str] = "summarizer_agent"
     model: ClassVar[str] = settings.active_model
-    prompt_template: ClassVar[str] = "summarize.v2.md"
-    prompt_version: ClassVar[str] = "v2"
+    prompt_template: ClassVar[str] = "summarize.v3.md"
+    prompt_version: ClassVar[str] = "v3"
     input_schema: ClassVar[type | None] = None
     output_schema: ClassVar[type[BaseModel]] = SummarizerOutput
     memory_tier: ClassVar[str] = "working"

@@ -15,7 +15,7 @@ class KeyClaim(BaseModel):
 
 class SummarizerOutput(BaseModel):
     thesis: str
-    synthesis: str = ""  # 2-5 paragraph prose summary (empty string = not yet generated)
+    synthesis: str = ""  # scannable markdown bullet list for ## Summary (v3); empty = not yet generated
     key_claims: list[KeyClaim]
     caveats: list[str]
     summary_confidence: float = Field(ge=0, le=1)
