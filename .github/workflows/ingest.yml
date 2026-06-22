@@ -53,6 +53,11 @@ jobs:
 
       - name: Run batch ingest
         env:
+          # LLM provider. Code default is "gemini" (free tier); CI is pinned to
+          # "openai" until the GEMINI_API_KEY secret is added — flip to "gemini"
+          # once the key exists (then GeminiClient runs forward ingestions free).
+          PKM_LLM_PROVIDER: openai
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # OPENAI_BASE_URL intentionally NOT set here: when the secret is absent
           # GitHub resolves it to "", which pydantic-settings uses to override the

@@ -24,7 +24,7 @@ class ConceptExtractor(BaseAgent):
     """
 
     role: ClassVar[str] = "concept_extractor"
-    model: ClassVar[str] = settings.llm_model
+    model: ClassVar[str] = settings.active_model
     prompt_template: ClassVar[str] = "extract_claims.v1.md"
     prompt_version: ClassVar[str] = "v1"
     input_schema: ClassVar[type | None] = None

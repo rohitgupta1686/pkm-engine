@@ -19,7 +19,7 @@ class KGAgent(BaseAgent):
     """
 
     role = "kg_agent"
-    model = settings.llm_model
+    model = settings.active_model
     prompt_template = "er_extraction.v1.md"
     prompt_version = "v1"
     input_schema = None

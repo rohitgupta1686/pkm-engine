@@ -15,7 +15,7 @@ from pkm.schemas.agent_io import ConceptSynthesisOutput
 
 class ConceptSynthesisAgent(BaseAgent):
     role: ClassVar[str] = "concept_synthesis_agent"
-    model: ClassVar[str] = settings.llm_model
+    model: ClassVar[str] = settings.active_model
     prompt_template: ClassVar[str] = "concept_synthesis.v1.md"
     prompt_version: ClassVar[str] = "v1"
     input_schema: ClassVar[type | None] = None

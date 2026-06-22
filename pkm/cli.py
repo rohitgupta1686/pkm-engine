@@ -200,7 +200,7 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
     """Execute the ingest subcommand."""
     # Late imports: keep startup fast for --help; only load heavy deps when actually ingesting.
     from pkm.config import Settings
-    from pkm.llm.client import LLMClient
+    from pkm.llm.factory import build_llm_client
     from pkm.pipeline.ingest import run_ingest
     from pkm.store.registry import connect
 
@@ -236,7 +236,7 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
 
     # Set up DB and LLM client
     conn = connect(settings)
-    llm_client = LLMClient(conn, settings.openai_api_key, settings.openai_base_url)
+    llm_client = build_llm_client(conn, settings)
 
     # Run the pipeline (CF creds optional: empty string = skip embed step)
     result = run_ingest(
@@ -259,7 +259,7 @@ def _cmd_batch_ingest(args: argparse.Namespace) -> None:
     # Late imports: keep startup fast for --help; only load heavy deps when actually ingesting.
     from pkm.batch import batch_ingest
     from pkm.config import Settings
-    from pkm.llm.client import LLMClient
+    from pkm.llm.factory import build_llm_client
     from pkm.store.registry import connect
 
     # Load settings (from .env or environment variables)
@@ -287,7 +287,7 @@ def _cmd_batch_ingest(args: argparse.Namespace) -> None:
 
     # Set up DB and LLM client
     conn = connect(settings)
-    llm_client = LLMClient(conn, settings.openai_api_key, settings.openai_base_url)
+    llm_client = build_llm_client(conn, settings)
 
     # Run batch ingest (per-run cost/token cap from settings — T1-02 guardrail)
     result = batch_ingest(

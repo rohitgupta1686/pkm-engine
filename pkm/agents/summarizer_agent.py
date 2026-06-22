@@ -25,7 +25,7 @@ class SummarizerAgent(BaseAgent):
     """
 
     role: ClassVar[str] = "summarizer_agent"
-    model: ClassVar[str] = settings.llm_model
+    model: ClassVar[str] = settings.active_model
     prompt_template: ClassVar[str] = "summarize.v2.md"
     prompt_version: ClassVar[str] = "v2"
     input_schema: ClassVar[type | None] = None
