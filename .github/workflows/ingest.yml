@@ -3,10 +3,11 @@ name: ingest
 on:
   repository_dispatch:
     types: [ingest]
-  # PAUSED 2026-06-21: nightly cron disabled while the concept-synthesis Turso
-  # connection bug is unresolved (it fails every ingest). Re-enable by uncommenting.
-  # schedule:
-  #   - cron: "0 3 * * *"
+  # Re-enabled 2026-06-22: concept-synthesis Turso idle-drop bug fixed
+  # (self-healing _ResilientConnection, engine f77c373) and verified end-to-end
+  # via workflow_dispatch run 27944153364 — Ken article ingested, failed: 0.
+  schedule:
+    - cron: "0 3 * * *"
   workflow_dispatch: # manual trigger for testing
 
 concurrency:
