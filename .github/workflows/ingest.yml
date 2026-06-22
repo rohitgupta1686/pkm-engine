@@ -53,10 +53,9 @@ jobs:
 
       - name: Run batch ingest
         env:
-          # LLM provider. Code default is "gemini" (free tier); CI is pinned to
-          # "openai" until the GEMINI_API_KEY secret is added — flip to "gemini"
-          # once the key exists (then GeminiClient runs forward ingestions free).
-          PKM_LLM_PROVIDER: openai
+          # LLM provider. GEMINI_API_KEY secret added 2026-06-22 → switched to the
+          # free Gemini Flash tier. Set back to "openai" to fall back to OpenAI.
+          PKM_LLM_PROVIDER: gemini
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # OPENAI_BASE_URL intentionally NOT set here: when the secret is absent
