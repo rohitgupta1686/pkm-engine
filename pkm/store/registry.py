@@ -1,3 +1,4 @@
+import logging
 import pathlib
 import uuid
 from datetime import datetime, timezone
@@ -5,6 +6,8 @@ from datetime import datetime, timezone
 import libsql_experimental as libsql
 
 from pkm.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 def get_migrations_dir() -> pathlib.Path:
@@ -43,6 +46,106 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _open_raw(settings: Settings):
+    """Open a bare libsql connection (no migrations) per the settings target."""
+    if settings.turso_url:
+        return libsql.connect(database=settings.turso_url, auth_token=settings.turso_token)
+    return libsql.connect(settings.db_path)
+
+
+class _ResilientConnection:
+    """libsql connection wrapper that survives Turso/Hrana idle-connection drops.
+
+    The ingest pipeline interleaves slow LLM/HTTP calls with DB writes on one
+    long-lived connection (concept synthesis, embeddings, per-source batch
+    totals). Turso closes an idle Hrana connection during those gaps, so the
+    next statement raises "Hrana: ... connection closed before message
+    completed". This wrapper catches exactly that, opens a fresh connection,
+    and retries the statement once.
+
+    Safety rails:
+    - Only retries for Turso connections (``settings.turso_url`` set). A local
+      SQLite file / ``:memory:`` connection never idle-drops, and silently
+      reconnecting one would discard its data — so we never reconnect those.
+    - Only retries OUTSIDE an explicit transaction. In this pipeline every slow
+      gap sits outside ``BEGIN..COMMIT`` (all agent calls finish before ``BEGIN``
+      at ingest.py), so an in-transaction drop is not an idle drop; re-raising
+      lets the caller's rollback path run rather than silently losing writes.
+    """
+
+    def __init__(self, settings: Settings):
+        self._settings = settings
+        self._conn = _open_raw(settings)
+        self._in_txn = False
+
+    # -- internals ---------------------------------------------------------
+    @staticmethod
+    def _is_drop(exc: Exception) -> bool:
+        return "connection closed" in str(exc).lower()
+
+    def _can_retry(self, exc: Exception) -> bool:
+        return (
+            bool(self._settings.turso_url)
+            and not self._in_txn
+            and self._is_drop(exc)
+        )
+
+    def _reconnect(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:  # noqa: BLE001 — best-effort close of a dead handle
+            pass
+        self._conn = _open_raw(self._settings)
+        self._in_txn = False
+
+    @staticmethod
+    def _track_txn_start(sql: str) -> bool | None:
+        head = sql.lstrip()[:8].upper()
+        if head.startswith("BEGIN"):
+            return True
+        if head.startswith(("COMMIT", "ROLLBACK", "END")):
+            return False
+        return None
+
+    # -- delegated DB API --------------------------------------------------
+    def execute(self, sql, *args, **kwargs):
+        try:
+            cur = self._conn.execute(sql, *args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 — narrow gate in _can_retry
+            if not self._can_retry(exc):
+                raise
+            logger.warning(
+                "libsql connection dropped on %s; reconnecting and retrying",
+                (sql.split() or ["?"])[0],
+            )
+            self._reconnect()
+            cur = self._conn.execute(sql, *args, **kwargs)
+        state = self._track_txn_start(sql)
+        if state is not None:
+            self._in_txn = state
+        return cur
+
+    def executescript(self, sql, *args, **kwargs):
+        return self._conn.executescript(sql, *args, **kwargs)
+
+    def executemany(self, sql, *args, **kwargs):
+        return self._conn.executemany(sql, *args, **kwargs)
+
+    def commit(self):
+        self._conn.commit()
+        self._in_txn = False
+
+    def rollback(self):
+        self._conn.rollback()
+        self._in_txn = False
+
+    def __getattr__(self, name):
+        # Delegate anything not overridden (cursor, sync, close, isolation_level…)
+        if name == "_conn":
+            raise AttributeError(name)
+        return getattr(self._conn, name)
+
+
 def connect(settings: Settings | None = None):
     """
     Return a libsql connection with auto-migration applied.
@@ -50,16 +153,15 @@ def connect(settings: Settings | None = None):
     If settings is None, the module-level singleton from pkm.config is used.
     If settings.turso_url is truthy, connects to Turso cloud with auth_token.
     Otherwise opens a local SQLite file at settings.db_path.
+
+    The returned connection self-heals from Turso idle-connection drops; see
+    ``_ResilientConnection``.
     """
     if settings is None:
         from pkm.config import settings as _settings
         settings = _settings
 
-    if settings.turso_url:
-        conn = libsql.connect(database=settings.turso_url, auth_token=settings.turso_token)
-    else:
-        conn = libsql.connect(settings.db_path)
-
+    conn = _ResilientConnection(settings)
     _run_migrations(conn)
     return conn
 
