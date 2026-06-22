@@ -71,13 +71,24 @@ def _parse_flash_version(model_id: str) -> float | None:
     return float(m.group(1)) if m else None
 
 
-def order_flash_models(model_ids: list[str]) -> list[str]:
-    """Return the Flash models ordered best-first for the fallback chain.
+# Non-text Flash variants that also advertise generateContent but cannot do the
+# pipeline's text synthesis (image generation, TTS, audio, vision, live/streaming).
+_NON_TEXT_MARKERS = ("image", "tts", "audio", "vision", "embedding", "live")
 
-    Sort key: full-flash before flash-lite; then version descending; then stable
-    before preview. Non-flash ids are dropped.
+
+def order_flash_models(model_ids: list[str]) -> list[str]:
+    """Return the *text* Flash models ordered best-first for the fallback chain.
+
+    Drops non-flash ids and non-text variants (image/tts/audio/…). Sort key:
+    full-flash before flash-lite; then version descending; then stable before
+    preview.
     """
-    flash = [(mid, v) for mid in model_ids if (v := _parse_flash_version(mid)) is not None]
+    flash = [
+        (mid, v)
+        for mid in model_ids
+        if not any(marker in mid for marker in _NON_TEXT_MARKERS)
+        and (v := _parse_flash_version(mid)) is not None
+    ]
 
     def key(item: tuple[str, float]) -> tuple[int, float, int]:
         mid, version = item
