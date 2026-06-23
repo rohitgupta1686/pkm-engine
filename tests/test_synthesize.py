@@ -20,6 +20,7 @@ from pkm.pipeline.synthesize import (  # noqa: E402
     synthesize_note,
 )
 from pkm.store.notes import (  # noqa: E402
+    body_from_raw,
     list_note_slugs,
     recent_wildcard_frames,
     slug_for_raw,
@@ -34,7 +35,22 @@ RAW = (
     "url: \"https://www.economist.com/x\"\n"
     "date_saved: 2026-06-21T13:24:51.899Z\n"
     "---\n"
-    "Anthropic's revenue is growing fast. The body of the article goes here.\n"
+    "Anthropic's revenue is growing fast. The body of the article goes on to "
+    "describe how the company's annualized run-rate has climbed sharply over the "
+    "past year, driven by enterprise demand for Claude. It covers the model "
+    "lineup, the API business, and the competitive landscape against OpenAI and "
+    "Google, with plenty of substance for a synthesizer to work from.\n"
+)
+
+# A body-less stub: front matter only (a paywall clip). Its body is below the
+# MIN_BODY_CHARS guard, so run_note_ingest must skip it without an LLM call.
+RAW_STUB = (
+    "---\n"
+    'title: "Paywalled piece behind a login wall"\n'
+    "type: Article\n"
+    "url: \"https://example.com/paywalled\"\n"
+    "date_saved: 2026-06-23T09:00:00.000Z\n"
+    "---\n"
 )
 
 NOTE_MD = "---\ntitle: x\n---\n\n# x\n\n> [!abstract] Thesis\n> A note.\n"
@@ -135,6 +151,44 @@ def test_run_note_ingest_writes_note_and_excludes_self_link():
         assert "jio-ipo-finshots" in linkable
         # own slug appears as the file but not in the linkable list line items
         assert "- anthropic-s-astonishing-commercial-success" not in linkable
+
+
+def test_body_from_raw_strips_front_matter():
+    assert body_from_raw(RAW).strip().startswith("Anthropic's revenue is growing fast")
+    # A front-matter-only stub has an empty body.
+    assert body_from_raw(RAW_STUB).strip() == ""
+    # No front matter → the whole text is the body.
+    assert body_from_raw("just a body, no fm") == "just a body, no fm"
+
+
+def test_run_note_ingest_skips_body_less_stub_without_calling_llm():
+    client = FakeLLMClient()
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+
+        result = run_note_ingest(
+            client, vault_root=vault, raw_text=RAW_STUB, raw_path="raw/stub.md",
+            model="gpt-5.4",
+        )
+
+        assert result["status"] == "skipped_empty"
+        assert result["note_path"] is None
+        assert client.calls == []  # never reached the model
+        # No note file written for a stub.
+        assert list_note_slugs(vault) == []
+
+
+def test_min_body_chars_threshold_is_configurable():
+    client = FakeLLMClient()
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        # With the guard relaxed to 0, even the stub synthesizes.
+        result = run_note_ingest(
+            client, vault_root=vault, raw_text=RAW_STUB, raw_path="raw/stub.md",
+            model="gpt-5.4", min_body_chars=0,
+        )
+        assert result["status"] == "ok"
+        assert len(client.calls) == 1
 
 
 def test_new_only_skips_existing_note_without_calling_llm():

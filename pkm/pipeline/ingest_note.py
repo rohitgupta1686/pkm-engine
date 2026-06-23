@@ -14,6 +14,7 @@ from pathlib import Path
 
 from pkm.pipeline.synthesize import synthesize_note
 from pkm.store.notes import (
+    body_from_raw,
     list_note_slugs,
     recent_wildcard_frames,
     slug_for_raw,
@@ -25,6 +26,12 @@ logger = logging.getLogger(__name__)
 # How many recent notes' wildcard frames to feed back as "avoid repeating".
 RECENT_FRAMES_WINDOW = 5
 
+# Minimum non-whitespace body length (chars, after front matter) for a capture to
+# be worth synthesizing. Body-less stubs — paywall clips that carry only front
+# matter — fall below this and are skipped before the model call, so they can't
+# produce hallucinated notes (and don't burn spend).
+MIN_BODY_CHARS = 200
+
 
 def run_note_ingest(
     llm_client,
@@ -34,6 +41,7 @@ def run_note_ingest(
     model: str,
     notes_dirname: str = "notes",
     new_only: bool = False,
+    min_body_chars: int = MIN_BODY_CHARS,
 ) -> dict:
     """Synthesize one note from one raw capture.
 
@@ -45,6 +53,8 @@ def run_note_ingest(
         model:      synthesis model id (settings.synthesis_model).
         notes_dirname: vault subdir for notes (default "notes").
         new_only:   if True, skip when the target note already exists.
+        min_body_chars: captures whose body (after front matter) has fewer than
+                    this many non-whitespace chars are skipped without an LLM call.
 
     Returns:
         A JSON-serializable result dict: slug, note_path, raw_path, status,
@@ -52,10 +62,26 @@ def run_note_ingest(
     """
     vault_root = Path(vault_root)
     slug = slug_for_raw(raw_text)
+    note_path = vault_root / notes_dirname / f"{slug}.md"
+
+    # Skip body-less stub captures (paywall clips with only front matter) before
+    # the model ever sees them — otherwise they yield junk/hallucinated notes.
+    body_len = len(body_from_raw(raw_text).strip())
+    if body_len < min_body_chars:
+        logger.info(
+            "run_note_ingest: skip (empty body: %d < %d chars) — %s",
+            body_len, min_body_chars, raw_path,
+        )
+        return {
+            "slug": slug,
+            "note_path": None,
+            "raw_path": raw_path,
+            "status": "skipped_empty",
+            "cached": False,
+        }
 
     existing = list_note_slugs(vault_root, notes_dirname)
 
-    note_path = vault_root / notes_dirname / f"{slug}.md"
     if new_only and note_path.exists():
         logger.info("run_note_ingest: skip (new_only) — note exists: %s", note_path)
         return {
