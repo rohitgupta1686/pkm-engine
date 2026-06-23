@@ -83,12 +83,26 @@ jobs:
           exit 1
 
       - name: Backup push to second remote
-        # GUARD-07: off-site backup of the vault — now the ONLY irreplaceable asset
-        # (no Turso/Vectorize to rebuild from). BACKUP_REMOTE_URL is a full https URL
-        # with an embedded credential scoped to the backup repo only. Clear the
-        # checkout extraheader (carries VAULT_PAT, scoped to pkm-vault) so git uses
-        # the backup credential instead.
+        # GUARD-07: off-site mirror of the vault — now the ONLY irreplaceable asset
+        # (no Turso/Vectorize to rebuild from). The pkm-vault remote is authoritative;
+        # this is a ONE-WAY mirror, so we force-push to overwrite any divergence on the
+        # backup (e.g. an orphaned commit left when a prior run's primary push was
+        # rejected after this always()-step had already pushed). Force is safe because
+        # nothing else writes to the backup; retry to absorb transient network errors.
+        # BACKUP_REMOTE_URL is a full https URL with an embedded credential scoped to
+        # the backup repo only. Clear the checkout extraheader (carries VAULT_PAT,
+        # scoped to pkm-vault) so git uses the backup credential instead.
         if: always()
         working-directory: vault
         continue-on-error: true
-        run: git -c http.https://github.com/.extraheader= push "${{ secrets.BACKUP_REMOTE_URL }}" HEAD:refs/heads/main
+        run: |
+          for attempt in 1 2 3; do
+            if git -c http.https://github.com/.extraheader= push --force "${{ secrets.BACKUP_REMOTE_URL }}" HEAD:refs/heads/main; then
+              echo "Backup pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Backup push attempt $attempt failed; retrying in 5s..."
+            sleep 5
+          done
+          echo "WARNING: backup push failed after 3 attempts." >&2
+          exit 1
