@@ -1,11 +1,13 @@
 name: ingest
 
+# Cloud ingestion — nothing runs on a local machine. The capture worker fires a
+# repository_dispatch(ingest); this job checks out the vault, synthesizes one
+# Markdown note per new raw capture via a single OpenAI GPT-5.4 call, and commits
+# the notes back. No Turso, no Vectorize, no database.
+
 on:
   repository_dispatch:
     types: [ingest]
-  # Re-enabled 2026-06-22: concept-synthesis Turso idle-drop bug fixed
-  # (self-healing _ResilientConnection, engine f77c373) and verified end-to-end
-  # via workflow_dispatch run 27944153364 — Ken article ingested, failed: 0.
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch: # manual trigger for testing
@@ -19,13 +21,10 @@ permissions:
 
 jobs:
   run:
-    # 40m ceiling (was 25m): a batch of several FRESH sources runs 4 agents +
-    # the per-concept synthesis loop each, and Gemini free-tier rate limits add
-    # backoff. The commit step only runs after the whole batch, so the ceiling
-    # must clear the slowest expected batch. It's a max, not a fixed duration —
-    # fast nightly runs finish early. Public repo → unlimited free minutes, $0.
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # One LLM call per source (~13s each) + commit. Generous ceiling for a large
+    # backlog; fast nightly runs finish early. Public repo → free minutes, $0.
+    timeout-minutes: 30
 
     steps:
       - name: Checkout engine code
@@ -40,135 +39,39 @@ jobs:
           token: ${{ secrets.VAULT_PAT }}
           path: vault
           persist-credentials: true
-          # Full clone (not the default depth=1 shallow clone) so the GUARD-07
-          # backup push can send complete history to the empty backup remote.
-          # Vault is small markdown; workflow runs on public pkm-engine (free minutes).
-          fetch-depth: 0
+          fetch-depth: 0  # full history for the GUARD-07 backup push
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install engine
-        run: pip install -e ./engine
+        run: pip install -e ./engine   # no libsql/Rust deps → fast, wheel-only
 
-      - name: Run batch ingest
+      - name: Run batch ingest (single GPT-5.4 call per source)
         env:
-          # LLM provider. GEMINI_API_KEY secret added 2026-06-22 → switched to the
-          # free Gemini Flash tier. Set back to "openai" to fall back to OpenAI.
-          PKM_LLM_PROVIDER: gemini
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          # OPENAI_BASE_URL intentionally NOT set here: when the secret is absent
-          # GitHub resolves it to "", which pydantic-settings uses to override the
-          # config default and breaks the OpenAI SDK with APIConnectionError.
-          # Cloud run uses the direct OpenAI endpoint via config.py default; base_url
-          # override (CLIProxyAPI) is for local dev only. See 04-03 verification.
+          # PKM_SYNTHESIS_MODEL defaults to gpt-5.4 (config.py); override here if needed.
           PKM_RUN_COST_CAP_USD: "0.50"
-          PKM_RUN_TOKEN_CAP: "200000"
-          TURSO_URL: ${{ secrets.TURSO_URL }}
-          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
-          # Phase 6: Cloudflare credentials for Workers AI embedding + Vectorize upsert.
-          # Empty string (absent secret) = embed step is skipped; ingest still completes.
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: pkm batch-ingest --new-only --vault "$GITHUB_WORKSPACE/vault"
 
-      - name: Commit synthesized wiki
+      - name: Commit synthesized notes
         working-directory: vault
         run: |
           git config user.name "pkm-bot"
           git config user.email "pkm-bot@users.noreply.github.com"
-          git add wiki/ index.md log.md
-          git add dashboard.md 2>/dev/null || true
+          git add notes/
           git diff --cached --quiet || git commit -m "synthesize: $(date -u +%FT%TZ)"
           git push
 
-      # ---------------------------------------------------------------------
-      # Phase 7 guardrails (GUARD-06, GUARD-07) — run nightly after batch-ingest.
-      # Each step is non-blocking (continue-on-error) where an outage must not
-      # abort the run; failures surface via the step's exit status instead.
-      # ---------------------------------------------------------------------
-
-      - name: Backfill embeddings
-        if: always()
-        working-directory: vault
-        continue-on-error: true
-        env:
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          TURSO_URL: ${{ secrets.TURSO_URL }}
-          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
-        run: pkm backfill-embeds --vault "$GITHUB_WORKSPACE/vault" --batch-size 100
-
-      - name: Lint vault
-        working-directory: vault
-        continue-on-error: true
-        env:
-          TURSO_URL: ${{ secrets.TURSO_URL }}
-          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
-        # Exits 1 on a dirty vault; continue-on-error keeps the run going so the
-        # dashboard + backup still run. Failures are written to log.md by lint.
-        run: pkm lint --vault "$GITHUB_WORKSPACE/vault"
-
-      - name: Compute Actions minutes this month
-        id: actions_minutes
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          since=$(date -u -d 'first day of this month' +%Y-%m-%dT00:00:00Z 2>/dev/null || date -u +%Y-%m-01T00:00:00Z)
-          ms=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?per_page=100&created=>=$since" --jq '[.workflow_runs[].run_duration_ms] | add // 0' 2>/dev/null || echo 0)
-          minutes=$(( ms / 60000 ))
-          echo "minutes=$minutes" >> "$GITHUB_OUTPUT"
-
-      - name: Regenerate dashboard
-        working-directory: vault
-        env:
-          TURSO_URL: ${{ secrets.TURSO_URL }}
-          TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
-        run: pkm dashboard --vault "$GITHUB_WORKSPACE/vault" --actions-minutes ${{ steps.actions_minutes.outputs.minutes }}
-
-      - name: 80% Actions-minutes alert
-        # GUARD-06: append a WARN line to log.md when monthly usage >= 80% of the cap.
-        # cap defaults to 2000 (set PKM_ACTIONS_MINUTES_CAP repo variable to override).
-        # For the public pkm-engine repo minutes are free/unbilled — this is defense
-        # in depth for a future private-repo scenario.
-        working-directory: vault
-        env:
-          PKM_ACTIONS_MINUTES_CAP: ${{ vars.PKM_ACTIONS_MINUTES_CAP || '2000' }}
-        run: |
-          minutes="${{ steps.actions_minutes.outputs.minutes }}"
-          cap="${PKM_ACTIONS_MINUTES_CAP}"
-          if [ "$cap" -gt 0 ] 2>/dev/null; then
-            pct=$(( minutes * 100 / cap ))
-            if [ "$pct" -ge 80 ]; then
-              printf '%s WARN actions-minutes %s/%s (>=80%%)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$minutes" "$cap" >> log.md
-            fi
-          fi
-
-      - name: Commit guardrail artifacts
-        working-directory: vault
-        run: |
-          git config user.name "pkm-bot"
-          git config user.email "pkm-bot@users.noreply.github.com"
-          git add dashboard.md log.md
-          git diff --cached --quiet || git commit -m "guardrails: $(date -u +%FT%TZ)"
-          git push
-
       - name: Backup push to second remote
-        # GUARD-07: off-site backup of the vault (the only irreplaceable asset —
-        # Turso + Vectorize rebuild from raw/). BACKUP_REMOTE_URL must be a full
-        # https URL with an embedded credential (or a read-write deploy token) for
-        # a second GitHub repo / other git host, scoped to that backup repo ONLY.
-        # Configured in the Plan 05 operator checkpoint. Job permissions stay
-        # contents: read — the push uses BACKUP_REMOTE_URL's credential, not GITHUB_TOKEN.
+        # GUARD-07: off-site backup of the vault — now the ONLY irreplaceable asset
+        # (no Turso/Vectorize to rebuild from). BACKUP_REMOTE_URL is a full https URL
+        # with an embedded credential scoped to the backup repo only. Clear the
+        # checkout extraheader (carries VAULT_PAT, scoped to pkm-vault) so git uses
+        # the backup credential instead.
         if: always()
         working-directory: vault
         continue-on-error: true
-        # Clear the extraheader that actions/checkout (persist-credentials: true)
-        # injects for github.com — it carries VAULT_PAT (scoped to pkm-vault only)
-        # and would override the backup token embedded in BACKUP_REMOTE_URL, causing
-        # a 403 "Write access not granted" on pkm-vault-backup. With it cleared, git
-        # authenticates with the URL-embedded backup credential.
         run: git -c http.https://github.com/.extraheader= push "${{ secrets.BACKUP_REMOTE_URL }}" HEAD:refs/heads/main
