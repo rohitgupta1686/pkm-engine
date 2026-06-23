@@ -1,8 +1,8 @@
 """OpenAI implementation of the LLM client.
 
-Transport + OpenAI-strict-schema only; all cache / agent_runs / retry
-orchestration lives in pkm.llm.base_client.BaseLLMClient. The Gemini sibling is
-pkm.llm.gemini_client.GeminiClient. Pick one via pkm.llm.factory.build_llm_client.
+Transport + OpenAI-strict-schema only; all (optional) cache / agent_runs / retry
+orchestration lives in pkm.llm.base_client.BaseLLMClient. The single-call pipeline
+constructs this directly with conn=None (DB-free); see pkm.cli._build_synthesis_client.
 """
 import copy
 import logging

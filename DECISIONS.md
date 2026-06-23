@@ -11,6 +11,26 @@ Logged autonomously during execution. These are reversible — rework < 1 day.
 
 ---
 
+### Redesign — Single-call synthesis + model lock (2026-06-23)
+
+The 8-phase graph pipeline (atomic SPO claims, concepts, Turso/Vectorize, 4-agent
+chain + per-concept synthesis) is being replaced by ONE LLM call per source →
+one readable Markdown note (`pkm/pipeline/synthesize.py` + `ingest_note.py` +
+`store/notes.py`; prompt `pkm/prompts/synthesis.v3.md`). Rationale: the graph
+optimization was the root cause of slow/complex/unreadable output. See
+`docs/LEGACY_RETIREMENT_PLAN.md` for the staged teardown.
+
+**Model locked: `gpt-5.4`** (`PKM_SYNTHESIS_MODEL`, full model — NOT the mini the
+legacy pipeline pinned). Pricing added to `pkm/llm/pricing.py`: $2.50 / $0.25 /
+$15.00 per 1M in/cached/out. ~$0.032/note, ~13s/note. Decision basis: a blind
+4-capture A/B vs `gpt-5.4-mini` (`scripts/compare_models.py`). Both near-tied on
+faithfulness + scannability, but gpt-5.4 reliably produced the apt Mermaid visual
+AND an earned wildcard on every note while mini omitted both on all 4 — i.e. only
+the full model delivers the redesign's "scannable, visual, surprising" thesis. The
+mini is ~3.7x cheaper and remains the fallback if cost ever needs cutting.
+
+---
+
 ## Phase 5 — Capture Worker
 
 **[T2-05-01] Q1 — R2 offload for >200K text.** Keep the FULL text in the `raw/` body
