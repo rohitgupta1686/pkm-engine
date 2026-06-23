@@ -16,6 +16,13 @@ PRICING: dict[str, dict[str, float]] = {
         "cached": 0.075,  # cached prompt tokens (90% off)
         "output": 4.50,   # completion tokens
     },
+    # gpt-5.4 (the single-call synthesis model) — confirmed standard sync pricing,
+    # per 1M tokens (2026-06-23). Cached input is 90% off, same structure as mini.
+    "gpt-5.4": {
+        "input": 2.50,   # non-cached prompt tokens
+        "cached": 0.25,  # cached prompt tokens (90% off)
+        "output": 15.00,  # completion tokens
+    },
 }
 
 

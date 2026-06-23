@@ -1,0 +1,107 @@
+"""Single-call ingest orchestration (the redesigned pipeline).
+
+raw capture --> one LLM call --> one Markdown note in <vault>/notes/.
+
+No Turso writes, no chunking, no claim/concept/graph extraction, no embeddings,
+no database. The only state it reads is the set of existing note slugs (for
+cross-linking) plus recent wildcard frames (for variety); the only state it
+writes is the note file. The knowledge artifact is the Markdown vault itself.
+"""
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+from pkm.pipeline.synthesize import synthesize_note
+from pkm.store.notes import (
+    list_note_slugs,
+    recent_wildcard_frames,
+    slug_for_raw,
+    write_note,
+)
+
+logger = logging.getLogger(__name__)
+
+# How many recent notes' wildcard frames to feed back as "avoid repeating".
+RECENT_FRAMES_WINDOW = 5
+
+
+def run_note_ingest(
+    llm_client,
+    vault_root: Path,
+    raw_text: str,
+    raw_path: str,
+    model: str,
+    notes_dirname: str = "notes",
+    new_only: bool = False,
+) -> dict:
+    """Synthesize one note from one raw capture.
+
+    Args:
+        llm_client: a BaseLLMClient (OpenAI on the production path).
+        vault_root: vault checkout root; notes are written under <root>/<notes_dirname>.
+        raw_text:   the raw captured Markdown.
+        raw_path:   the source path (for the result/log; never modified).
+        model:      synthesis model id (settings.synthesis_model).
+        notes_dirname: vault subdir for notes (default "notes").
+        new_only:   if True, skip when the target note already exists.
+
+    Returns:
+        A JSON-serializable result dict: slug, note_path, raw_path, status,
+        cached, and token counts when a live call was made.
+    """
+    vault_root = Path(vault_root)
+    slug = slug_for_raw(raw_text)
+
+    existing = list_note_slugs(vault_root, notes_dirname)
+
+    note_path = vault_root / notes_dirname / f"{slug}.md"
+    if new_only and note_path.exists():
+        logger.info("run_note_ingest: skip (new_only) — note exists: %s", note_path)
+        return {
+            "slug": slug,
+            "note_path": str(note_path),
+            "raw_path": raw_path,
+            "status": "skipped",
+            "cached": True,
+        }
+
+    # Linkable slugs exclude this note's own slug so it can't self-link.
+    linkable = [s for s in existing if s != slug]
+
+    # Recent wildcard frames → steer this stateless call away from repeating them.
+    recent_frames = recent_wildcard_frames(
+        vault_root, notes_dirname, limit=RECENT_FRAMES_WINDOW
+    )
+
+    call_result = synthesize_note(
+        llm_client,
+        raw_text=raw_text,
+        existing_titles=linkable,
+        source_id=slug,
+        model=model,
+        recent_frames=recent_frames,
+    )
+
+    note_md = call_result.get("result")
+    if not isinstance(note_md, str) or not note_md.strip():
+        raise RuntimeError(
+            f"run_note_ingest: synthesis returned no note text for {raw_path!r} "
+            f"(cached={call_result.get('cached')})."
+        )
+
+    written = write_note(vault_root, slug, note_md, notes_dirname)
+
+    result = {
+        "slug": slug,
+        "note_path": str(written),
+        "raw_path": raw_path,
+        "status": "ok",
+        "cached": bool(call_result.get("cached")),
+    }
+    if "tokens_in" in call_result:
+        result["tokens_in"] = call_result["tokens_in"]
+        result["tokens_out"] = call_result["tokens_out"]
+        result["cost_usd"] = call_result.get("cost_usd", 0.0)
+    logger.info("run_note_ingest: wrote %s (cached=%s)", written, result["cached"])
+    return result
