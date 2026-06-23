@@ -2,62 +2,55 @@
 
 ## Project
 
-Building a cloud-native PKM system: clip → synthesized wiki page, $0 infrastructure, zero local daemon.
+Clip an article → **one readable Markdown note**, produced by a **single OpenAI
+GPT-5.4 call per source**. $0 infrastructure, no database, no local daemon.
+Ingestion runs in GitHub Actions over a git checkout of the vault; the vault is
+plain Markdown read in Obsidian (which provides backlinks/graph/search for free).
+
+> **History:** the engine was redesigned in June 2026 from an 8-phase machine-readable
+> knowledge graph (atomic SPO claims, concepts, Turso + Cloudflare Vectorize, a
+> 4-agent chain + per-concept synthesis loop) to this single-call form. That graph
+> optimization was the root cause of slow/complex/unreadable output. The old planning
+> docs in `.planning/` and the spec/architecture docs are **historical** — do not
+> treat them as current. The redesign rationale lives in `DECISIONS.md` (2026-06-23
+> entry) and `docs/LEGACY_RETIREMENT_PLAN.md`.
 
 **Repos:**
-- `pkm-engine` — public GitHub repo (all code: Python pipeline, Cloudflare Workers, GitHub Actions workflows)
-- `pkm-vault` — private GitHub repo (Markdown vault: raw/, wiki/, SCHEMA.md, index.md, log.md)
+- `pkm-engine` — public GitHub repo (Python single-call pipeline, capture Worker, ingest workflow)
+- `pkm-vault` — private GitHub repo (Markdown vault: `raw/` immutable captures, `notes/` synthesized notes)
 
-**Current planning:** `.planning/` in this directory.
+## Architecture (current)
 
-## Authoritative Documents
-
-Read all four before making architectural decisions (conflict resolution: cloud doc > tech spec > process; build plan governs process):
-
-1. `PKM_Build_Plan_for_Claude_Code.md` — 8 phases, operating modes, DoDs, surfacing rules
-2. `PKM_TECHNICAL_SPECIFICATION.md` — ontology, DB schema, agents, note schema, naming, pydantic models
-3. `PKM Cloud Architecture.md` — cloud-native layer: Turso, GitHub Actions, Cloudflare Workers/Vectorize/R2
-4. `compass_artifact_wf-b56e1318-b024-4ef7-8802-a532e01c712d_text_markdown.md` — background/rationale
+- **The engine = the prompt:** `pkm/prompts/synthesis.v3.md` (keep in sync with
+  `pkm-prototype/SYNTHESIS_PROMPT.md`). One call in `pkm/pipeline/synthesize.py`.
+- **Orchestration:** `pkm/pipeline/ingest_note.py` — reads existing note slugs (for
+  `[[links]]`) + recent wildcard frames (for variety), writes `notes/<slug>.md`. No DB.
+- **Note I/O:** `pkm/store/notes.py`. **LLM transport:** `pkm/llm/client.py` (OpenAI),
+  run with `conn=None` (DB-free; `pkm/llm/base_client.py` only caches when given a conn).
+- **CLI:** `pkm ingest` / `pkm batch-ingest` (aliases `synthesize` / `batch-synthesize`).
+- **Model:** `gpt-5.4` locked (`PKM_SYNTHESIS_MODEL`); pricing in `pkm/llm/pricing.py`.
+- **Tests:** `tests/test_synthesize.py` (runs without OpenAI via a fake client).
 
 ## Hard Constraints
 
-- **$0 infrastructure** — all services stay on free tiers; no paid plan ever
-- **Zero local daemon** — nothing runs continuously on Mac; no menu-bar agents, no cron on Mac
-- **raw/ is immutable** — write-once; DB trigger enforces; re-ingest is always idempotent
+- **$0 infrastructure** — free tiers only; no paid plan ever
+- **Zero local daemon** — nothing runs on the Mac; ingestion is GitHub Actions only
+- **`raw/` is immutable** — write-once; re-ingest is idempotent (note-file existence)
 - **No secrets committed** — use `.env.example`, GitHub Actions Secrets, Worker Secrets
-- **Large text out of Turso** — Turso holds metadata + edges + cache; text lives in Git/R2
-- **Stop at MVP gate** — do NOT start V1 autonomously after Phase 8
+- **No database** — the Markdown vault in git is the only state
 
 ## Operating Mode: YOLO
 
 Default to autonomy. Surface back (Mode C) ONLY for:
 1. $0 goal breaks (infra would incur recurring cost)
-2. Claude cost would exceed spend cap for normal operation
-3. Spec is architecturally infeasible as written
-4. Irreversible/migration-expensive decision the docs don't settle
-5. Trust/blast-radius: widening secret scope, making vault public, unnamed third party
-6. Can't meet phase DoD without spec-unspecified scope expansion
+2. Claude/LLM cost would exceed the spend cap for normal operation
+3. A requested change is architecturally infeasible
+4. Irreversible/migration-expensive decision not settled by `DECISIONS.md`
+5. Trust/blast-radius: widening secret scope, making the vault public, an unnamed third party
 
-Log reversible choices in `DECISIONS.md` (Mode A). Tier-1 choices: proceed on default, list for MVP review (Mode B).
+Log reversible choices in `DECISIONS.md` (Mode A).
 
-## GSD Workflow
+## Known follow-ups
 
-**Planning files:** `.planning/`
-- `PROJECT.md` — project context
-- `REQUIREMENTS.md` — 44 v1 requirements with REQ-IDs
-- `ROADMAP.md` — 8 phases with success criteria
-- `STATE.md` — current phase and status
-
-**Next step:** `/gsd:plan-phase 1` to create PLAN.md for Phase 1.
-
-## Phase 1 Scope (current)
-
-Building in `pkm-engine` repo:
-- `pyproject.toml`, `.env.example`, repo scaffold
-- `pkm/config.py`, `pkm/store/registry.py` (libSQL connection)
-- `migrations/sqlite/001_init.sql` + `002_graph_tables.sql`
-- `pkm/schemas/` (pydantic models)
-- `pkm/llm/client.py` + `pkm/llm/models.py`
-- `tests/test_idempotency.py` + fixtures
-
-DoD: idempotency test green, raw-immutability trigger fires, schema auto-migrates.
+- A markdown-native `lint` (broken `[[wikilinks]]`, orphans) and a notes-count
+  `dashboard` could be rebuilt against `notes/` (the old DB-backed ones were retired).

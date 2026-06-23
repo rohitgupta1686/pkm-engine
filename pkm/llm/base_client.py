@@ -8,11 +8,9 @@ A concrete provider subclass implements just the transport seam:
   - ``_generate(model, messages, output_schema, max_tokens) -> Generation``
   - ``_cost(model, tokens_in, cached_tokens, tokens_out) -> float``
 
-This keeps the public ``call(...)`` contract identical across providers, so the
-agents and the pipeline are provider-agnostic and OpenAI ↔ Gemini is a config
-flip (see pkm.llm.factory). The OpenAI implementation lives in
-``pkm.llm.client.LLMClient``; the Gemini implementation in
-``pkm.llm.gemini_client.GeminiClient``.
+This keeps the public ``call(...)`` contract stable. The OpenAI implementation
+lives in ``pkm.llm.client.LLMClient``. The single-call pipeline runs it DB-free
+(``conn=None``); cache/agent_runs are only used when a connection is supplied.
 """
 import datetime
 import hashlib
@@ -50,9 +48,16 @@ class Generation:
 
 
 class BaseLLMClient:
-    """Shared cache / agent_runs / retry orchestration. Subclass per provider."""
+    """Shared cache / agent_runs / retry orchestration. Subclass per provider.
 
-    def __init__(self, conn) -> None:
+    ``conn`` is optional. The redesigned single-call pipeline runs DB-free
+    (``conn=None``): no agent_runs cache read/write, idempotency handled upstream
+    by the note file's existence. The retry/validate orchestration and cost
+    computation are unaffected — ``call`` returns ``cost_usd`` so a caller can sum
+    spend and enforce a per-run cap without a database.
+    """
+
+    def __init__(self, conn=None) -> None:
         self.conn = conn
 
     # ------------------------------------------------------------------ #
@@ -262,14 +267,17 @@ class BaseLLMClient:
         """
         input_hash = self._make_input_hash(agent_name, model, prompt_version, input_text)
 
-        cached = self._check_cache(agent_name, input_hash)
-        if cached is not None:
-            restored = self._restore_cached_result(
-                cached.get("output_json"), output_schema
-            )
-            if restored is not None:
-                return {"cached": True, "input_hash": input_hash, "result": restored}
-            return {"cached": True, "input_hash": input_hash}
+        # Cache is consulted only when a DB is attached. DB-free runs (conn=None)
+        # always make a live call; upstream note-file existence prevents redundancy.
+        if self.conn is not None:
+            cached = self._check_cache(agent_name, input_hash)
+            if cached is not None:
+                restored = self._restore_cached_result(
+                    cached.get("output_json"), output_schema
+                )
+                if restored is not None:
+                    return {"cached": True, "input_hash": input_hash, "result": restored}
+                return {"cached": True, "input_hash": input_hash}
 
         started_at = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
         try:
@@ -281,26 +289,29 @@ class BaseLLMClient:
                 gen.model, gen.tokens_in, gen.cached_tokens, gen.tokens_out
             )
             finished_at = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
-            self._write_run(
-                "run_" + uuid.uuid4().hex[:20],
-                agent_name, source_id, input_hash,
-                gen.model,  # record the CONCRETE model that served the call
-                gen.tokens_in, gen.tokens_out, cost_usd,
-                "ok", None, started_at, finished_at,
-                output_json=self._serialize_result(result),
-            )
+            if self.conn is not None:
+                self._write_run(
+                    "run_" + uuid.uuid4().hex[:20],
+                    agent_name, source_id, input_hash,
+                    gen.model,  # record the CONCRETE model that served the call
+                    gen.tokens_in, gen.tokens_out, cost_usd,
+                    "ok", None, started_at, finished_at,
+                    output_json=self._serialize_result(result),
+                )
             return {
                 "cached": False,
                 "input_hash": input_hash,
                 "result": result,
                 "tokens_in": gen.tokens_in,
                 "tokens_out": gen.tokens_out,
+                "cost_usd": cost_usd,
             }
         except Exception as e:
             finished_at = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
-            self._write_run(
-                "run_" + uuid.uuid4().hex[:20],
-                agent_name, source_id, input_hash, model,
-                0, 0, 0.0, "error", str(e), started_at, finished_at,
-            )
+            if self.conn is not None:
+                self._write_run(
+                    "run_" + uuid.uuid4().hex[:20],
+                    agent_name, source_id, input_hash, model,
+                    0, 0, 0.0, "error", str(e), started_at, finished_at,
+                )
             raise

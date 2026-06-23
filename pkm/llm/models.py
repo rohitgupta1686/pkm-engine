@@ -1,10 +1,12 @@
 """Canonical LLM model identifiers.
 
-The cloud ingest pipeline runs on a single model: gpt-5.4-mini. Settings.llm_model
-defaults to MINI; agents reference settings.llm_model so the model is
-environment-configurable (cloud = real OpenAI via OPENAI_API_KEY; local dev can
-point the OpenAI SDK at an OpenAI-compatible endpoint such as CLIProxyAPI by
-setting OPENAI_BASE_URL + PKM_LLM_MODEL to a claude-* id).
+Single-call note synthesis runs on the full model (GPT54), configured via
+Settings.synthesis_model (PKM_SYNTHESIS_MODEL). MINI is retained for the model
+comparison script (scripts/compare_models.py) and its pricing entry.
 """
 
 MINI = "gpt-5.4-mini-2026-03-17"
+
+# Single-call note synthesis (the redesigned pipeline) runs on the full model for
+# editorial quality. Snapshot still to confirm; "gpt-5.4" tracks the latest 5.4.
+GPT54 = "gpt-5.4"
