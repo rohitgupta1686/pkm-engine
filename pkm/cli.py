@@ -184,6 +184,7 @@ def _cmd_batch_synthesize(args: argparse.Namespace) -> None:
         "total": len(raw_files),
         "ok": sum(1 for r in results if r.get("status") == "ok"),
         "skipped": sum(1 for r in results if r.get("status") == "skipped"),
+        "skipped_empty": sum(1 for r in results if r.get("status") == "skipped_empty"),
         "failed": failed,
         "cost_usd": round(spent, 5),
         "cost_capped": aborted,

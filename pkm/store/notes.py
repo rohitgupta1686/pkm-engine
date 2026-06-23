@@ -45,6 +45,17 @@ def slug_for_raw(raw_text: str) -> str:
     return slugify(title_from_raw(raw_text)) or "untitled"
 
 
+def body_from_raw(raw_text: str) -> str:
+    """Return the capture's body — everything after the YAML front matter.
+
+    If there is no leading front-matter block, the whole text is the body. Used to
+    detect body-less stub captures (e.g. paywall clips that carry only front
+    matter) so they can be skipped before reaching the model.
+    """
+    fm = _FRONT_MATTER_RE.match(raw_text)
+    return raw_text[fm.end():] if fm else raw_text
+
+
 def notes_dir(vault_root: Path, notes_dirname: str = "notes") -> Path:
     """Return the notes directory under the vault root."""
     return Path(vault_root) / notes_dirname
