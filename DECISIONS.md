@@ -16,9 +16,20 @@ Logged autonomously during execution. These are reversible — rework < 1 day.
 A second, additive engine lives in `../pkm-engine-local`. It routes each synthesis
 call to a [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) instance on
 localhost (port 8317) that fronts a device's own Claude account over OAuth, instead
-of the OpenAI API. `pkm-engine` (this repo) is **untouched** and remains the
-CI/OpenAI path; the two share one vault and produce byte-identical notes (the
-prompt `synthesis.v3.md` and `store/notes.py` conventions are copied verbatim).
+of the OpenAI API. The two share one vault and produce byte-identical notes (the
+prompt `synthesis.v3.md` and `store/notes.py` conventions are copied verbatim). The
+local engine delivers the prompt in the **user turn** (a Claude Code OAuth token
+makes the upstream inject its own "You are Claude Code" identity into the system
+slot, which otherwise out-prioritizes a system-message prompt and triggers a
+refusal). Model: `claude-opus-4-8`.
+
+This engine (`pkm-engine`) keeps its single-call OpenAI code intact, but its CI
+**ingest workflow auto-triggers were disabled** (`repository_dispatch` +
+nightly `schedule` commented out; `workflow_dispatch` kept) so CI no longer
+pre-empts the local run and re-incurs OpenAI spend on every clip. The capture
+worker is unchanged — it still commits `raw/*.md` and may still fire
+`repository_dispatch(ingest)`, which is now a no-op. OpenAI ingestion remains a
+manual fallback (run the workflow by hand, or re-enable the triggers).
 
 Rationale: the user runs the system only on two Macs (two Claude accounts) and
 wants $0 LLM spend by using the existing flat-rate Claude subscriptions rather than
