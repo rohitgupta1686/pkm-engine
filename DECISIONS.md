@@ -11,6 +11,33 @@ Logged autonomously during execution. These are reversible — rework < 1 day.
 
 ---
 
+### Frontmatter sanitizer — quote free-text fields at write time (2026-06-24)
+
+The model writes each note's YAML frontmatter itself. Two notes ingested 2026-06-24
+had titles containing `: ` (e.g. `title: The Existence Project: Inside…`), which
+YAML reads as a nested mapping → the block failed to parse, so Obsidian saw no
+metadata and the notes vanished from every Dataview view (`Home.md`, Card Catalog).
+
+Fix: `sanitize_frontmatter()` in `store/notes.py`, wired into `write_note` so every
+write path is covered. It leniently extracts the `--- … ---` block (it can't be
+`yaml.safe_load`ed — it's malformed by definition) and re-emits **only** the
+free-text `title`/`source` lines via `yaml.safe_dump` (delegating quote/colon/pipe
+escaping to the library, not hand-rolled). Structured fields (`saved`, `tags`,
+`url`, `type`, `reading_time`) are left byte-for-byte to preserve Dataview's date
+and list semantics. Idempotent. Titles kept **verbatim** — no `|`→`—` rewrite
+(canonical metadata shouldn't silently diverge from the source; the pipe is YAML-
+safe once quoted). Prompt template now shows `title: "<…>"` as defense-in-depth, but
+the code sanitizer is the guarantee. `pyyaml>=6.0` promoted to a declared dep
+(was transitive). Tests cover colon/pipe/quotes/apostrophes/idempotence. The two
+broken notes were healed in `pkm-vault` by running the same function over their
+on-disk text (no model call) — committed there separately.
+
+Alternatives considered & rejected: (a) prompt-only quoting — relies on model
+compliance, no guarantee; (b) full parse→`yaml.safe_dump` of the whole dict — can't
+parse the malformed block, and stringifies `tags`/`saved`, breaking Dataview.
+
+---
+
 ### Redesign — Single-call synthesis + model lock (2026-06-23)
 
 The 8-phase graph pipeline (atomic SPO claims, concepts, Turso/Vectorize, 4-agent

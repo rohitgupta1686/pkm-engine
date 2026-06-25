@@ -23,9 +23,11 @@ from pkm.store.notes import (  # noqa: E402
     body_from_raw,
     list_note_slugs,
     recent_wildcard_frames,
+    sanitize_frontmatter,
     slug_for_raw,
     title_from_raw,
     wildcard_frame_of,
+    write_note,
 )
 
 RAW = (
@@ -270,6 +272,105 @@ def test_run_note_ingest_feeds_recent_frames():
         user_msg = client.calls[0]["messages"][1]["content"]
         assert "WILDCARD FRAMES USED BY RECENT NOTES" in user_msg
         assert "🔭 Zoom out" in user_msg
+
+
+def _parse_frontmatter(markdown: str) -> dict:
+    """yaml.safe_load the leading --- ... --- block of a note (raises if invalid)."""
+    import yaml
+
+    block = markdown.split("---", 2)[1]
+    return yaml.safe_load(block)
+
+
+def test_sanitize_frontmatter_fixes_colon_in_title():
+    # The exact bug: a title with ": " is invalid YAML until quoted.
+    md = (
+        "---\n"
+        "title: The Existence Project: Inside a tribal district's race\n"
+        "source: Mint / Pankaj Mishra\n"
+        "saved: 2026-06-24T14:41:33.784Z\n"
+        "tags: [ai, india, language]\n"
+        "---\n\n# body\n"
+    )
+    # Sanity: the input really is broken.
+    try:
+        import yaml
+
+        yaml.safe_load(md.split("---", 2)[1])
+        raise AssertionError("fixture should be invalid YAML")
+    except Exception as e:  # noqa: BLE001
+        assert "AssertionError" not in type(e).__name__
+
+    out = sanitize_frontmatter(md)
+    fm = _parse_frontmatter(out)  # must now parse
+    assert fm["title"] == "The Existence Project: Inside a tribal district's race"
+    assert fm["source"] == "Mint / Pankaj Mishra"
+
+
+def test_sanitize_frontmatter_handles_pipe_quotes_apostrophes():
+    # One title carrying every adversarial character at once.
+    nasty = 'A: title with | pipes and "quotes" and \'apostrophes\''
+    md = f"---\ntitle: {nasty}\nsource: Pub / Auth\n---\n\n# body\n"
+    out = sanitize_frontmatter(md)
+    fm = _parse_frontmatter(out)
+    assert fm["title"] == nasty  # round-trips EXACTLY (verbatim, no | -> -)
+    assert "|" in fm["title"] and "—" not in fm["title"]
+
+
+def test_sanitize_frontmatter_is_idempotent():
+    md = (
+        "---\n"
+        "title: From food crime: the evolution of India's fake milk | Mint\n"
+        'source: "Mint / Dhirendra Kumar"\n'  # already quoted → must not double-wrap
+        "tags: [india, dairy]\n"
+        "---\n\n# body\n"
+    )
+    once = sanitize_frontmatter(md)
+    twice = sanitize_frontmatter(once)
+    assert once == twice  # byte-identical on re-run
+    fm = _parse_frontmatter(once)
+    assert fm["title"] == "From food crime: the evolution of India's fake milk | Mint"
+    assert fm["source"] == "Mint / Dhirendra Kumar"
+
+
+def test_sanitize_frontmatter_leaves_structured_fields_untouched():
+    # saved must stay a bare ISO string and tags must stay a list — quoting them
+    # would cost Dataview its date/list semantics.
+    md = (
+        "---\n"
+        "title: Plain title\n"
+        "saved: 2026-06-24T14:41:33.784Z\n"
+        "tags: [ai, india, language]\n"
+        "url: https://example.com/x\n"
+        "type: article\n"
+        "reading_time: ~11 min\n"
+        "---\n\n# body\n"
+    )
+    out = sanitize_frontmatter(md)
+    assert "saved: 2026-06-24T14:41:33.784Z\n" in out  # bare, unquoted
+    assert "tags: [ai, india, language]\n" in out      # still a flow list
+    assert "url: https://example.com/x\n" in out
+    assert "reading_time: ~11 min\n" in out
+    fm = _parse_frontmatter(out)
+    assert fm["tags"] == ["ai", "india", "language"]
+
+
+def test_sanitize_frontmatter_noop_without_block():
+    body = "no front matter here\n\njust text\n"
+    assert sanitize_frontmatter(body) == body
+
+
+def test_write_note_sanitizes_broken_frontmatter():
+    broken = (
+        "---\n"
+        "title: Foo: a broken title\n"
+        "source: Pub / Auth\n"
+        "---\n\n# body\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        path = write_note(Path(tmp), "foo", broken)
+        fm = _parse_frontmatter(path.read_text())  # written file parses
+        assert fm["title"] == "Foo: a broken title"
 
 
 def _run_all():

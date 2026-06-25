@@ -13,11 +13,23 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import yaml
+
 from pkm.ingest.hashing import slugify
 
 # Match a leading YAML front-matter block: --- ... --- at the very top of the file.
 _FRONT_MATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _TITLE_RE = re.compile(r'^title:\s*"?(.*?)"?\s*$', re.MULTILINE)
+
+# Free-text frontmatter fields the model fills with arbitrary article strings.
+# These are the only fields that can carry a stray ``: `` (which YAML reads as a
+# mapping separator), an unbalanced quote, etc. — so they're the only ones we
+# re-serialize. Structured fields (saved/tags/url/type/reading_time) are left
+# byte-for-byte so we don't disturb Dataview's date and list semantics.
+_FREE_TEXT_FIELDS = ("title", "source")
+_FIELD_LINE_RE = re.compile(
+    rf"^({'|'.join(_FREE_TEXT_FIELDS)}):\s*(.*?)\s*$"
+)
 
 # A wildcard callout header is the only callout whose title leads with one of the
 # six wildcard emojis (the others — Thesis/By the numbers/Worth keeping/Open
@@ -54,6 +66,61 @@ def body_from_raw(raw_text: str) -> str:
     """
     fm = _FRONT_MATTER_RE.match(raw_text)
     return raw_text[fm.end():] if fm else raw_text
+
+
+def _unquote(raw: str) -> str:
+    """Best-effort recover the plain string a frontmatter value already encodes.
+
+    If ``raw`` is a valid quoted YAML scalar (e.g. ``'A: title'`` or ``"x"``),
+    return the string it denotes — this makes the sanitizer idempotent, so a value
+    we quoted on a previous write isn't re-wrapped. If ``raw`` doesn't parse as
+    YAML (the broken case: a bare value containing ``: ``) or parses to a
+    non-string, treat it as the literal text and let it be re-serialized.
+    """
+    try:
+        loaded = yaml.safe_load(raw)
+    except yaml.YAMLError:
+        return raw
+    return loaded if isinstance(loaded, str) else raw
+
+
+def _emit_field(key: str, value: str) -> str:
+    """Emit ``key: value`` as one line of valid YAML, quoting only when needed.
+
+    Delegates escaping to PyYAML rather than hand-rolling quote logic: a colon,
+    pipe, embedded quote or apostrophe is handled correctly and identically to how
+    any YAML reader would. ``width`` is set huge so long titles never line-fold.
+    """
+    return yaml.safe_dump(
+        {key: value},
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+        width=10**9,
+    ).strip()
+
+
+def sanitize_frontmatter(markdown: str) -> str:
+    """Re-serialize the free-text frontmatter fields so the block is valid YAML.
+
+    The model writes the note's frontmatter itself, emitting ``title``/``source``
+    verbatim — so a title like ``Foo: Bar`` produces ``title: Foo: Bar``, which
+    YAML rejects (``mapping values are not allowed here``). Obsidian then can't
+    read the note's metadata and it vanishes from every Dataview dashboard.
+
+    This rewrites only the ``title`` and ``source`` lines (via a real YAML
+    emitter), leaving every other line and the body untouched. Idempotent: running
+    it on already-sanitized text yields identical bytes. No-op when there's no
+    leading front-matter block.
+    """
+    fm = _FRONT_MATTER_RE.match(markdown)
+    if not fm:
+        return markdown
+    lines = []
+    for line in fm.group(1).split("\n"):
+        m = _FIELD_LINE_RE.match(line)
+        lines.append(_emit_field(m.group(1), _unquote(m.group(2))) if m else line)
+    return markdown[: fm.start(1)] + "\n".join(lines) + markdown[fm.end(1) :]
 
 
 def notes_dir(vault_root: Path, notes_dirname: str = "notes") -> Path:
@@ -126,6 +193,8 @@ def write_note(
     d = notes_dir(vault_root, notes_dirname)
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{safe_slug}.md"
-    # Normalize to a single trailing newline for byte-stable re-writes.
+    # Guarantee parseable frontmatter regardless of what the model emitted, then
+    # normalize to a single trailing newline for byte-stable re-writes.
+    markdown = sanitize_frontmatter(markdown)
     path.write_text(markdown.rstrip("\n") + "\n", encoding="utf-8")
     return path
