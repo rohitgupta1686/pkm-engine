@@ -31,9 +31,9 @@ Use Obsidian callout syntax (`> [!type] Title` then `>` lines) — it renders as
 
 ```
 ---
-title: <the real article title>
+title: "<the real article title>"
 url: <source url>
-source: <publication / author>
+source: "<publication / author>"
 saved: <date_saved from the raw front matter>
 type: <article | essay | analysis | news | explainer>
 tags: [3-6 lowercase topical tags]
