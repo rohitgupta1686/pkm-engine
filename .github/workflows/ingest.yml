@@ -1,16 +1,23 @@
 name: ingest
 
-# Cloud ingestion — nothing runs on a local machine. The capture worker fires a
-# repository_dispatch(ingest); this job checks out the vault, synthesizes one
-# Markdown note per new raw capture via a single OpenAI GPT-5.4 call, and commits
-# the notes back. No Turso, no Vectorize, no database.
+# Cloud ingestion (OpenAI GPT-5.4) — now a MANUAL fallback only. As of 2026-06-25
+# the primary path is the local-Claude engine `pkm-engine-local` (run by hand on a
+# Mac via CLIProxyAPI), so the auto-triggers were removed to stop CI from
+# pre-empting it and re-incurring OpenAI spend on every clip. The capture worker
+# still commits raw/*.md to the vault and may still fire repository_dispatch(ingest)
+# — that dispatch is now intentionally a no-op here. Re-add the triggers below to
+# restore automatic cloud ingestion. See DECISIONS.md (2026-06-25).
+#
+# This job checks out the vault, synthesizes one Markdown note per new raw capture
+# via a single OpenAI GPT-5.4 call, and commits the notes back. No database.
 
 on:
-  repository_dispatch:
-    types: [ingest]
-  schedule:
-    - cron: "0 3 * * *"
-  workflow_dispatch: # manual trigger for testing
+  workflow_dispatch: # manual run only — primary path is pkm-engine-local (local Claude)
+  # Disabled 2026-06-25 (see header). Uncomment to restore automatic cloud ingestion:
+  # repository_dispatch:
+  #   types: [ingest]
+  # schedule:
+  #   - cron: "0 3 * * *"
 
 concurrency:
   group: ingest
