@@ -11,6 +11,43 @@ Logged autonomously during execution. These are reversible — rework < 1 day.
 
 ---
 
+### Sibling engine `pkm-engine-local` — local Claude account via CLIProxyAPI (2026-06-25)
+
+A second, additive engine lives in `../pkm-engine-local`. It routes each synthesis
+call to a [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) instance on
+localhost (port 8317) that fronts a device's own Claude account over OAuth, instead
+of the OpenAI API. The two share one vault and produce byte-identical notes (the
+prompt `synthesis.v3.md` and `store/notes.py` conventions are copied verbatim). The
+local engine delivers the prompt in the **user turn** (a Claude Code OAuth token
+makes the upstream inject its own "You are Claude Code" identity into the system
+slot, which otherwise out-prioritizes a system-message prompt and triggers a
+refusal). Model: `claude-opus-4-8`.
+
+This engine (`pkm-engine`) keeps its single-call OpenAI code intact, but its CI
+**ingest workflow auto-triggers were disabled** (`repository_dispatch` +
+nightly `schedule` commented out; `workflow_dispatch` kept) so CI no longer
+pre-empts the local run and re-incurs OpenAI spend on every clip. The capture
+worker is unchanged — it still commits `raw/*.md` and may still fire
+`repository_dispatch(ingest)`, which is now a no-op. OpenAI ingestion remains a
+manual fallback (run the workflow by hand, or re-enable the triggers).
+
+Rationale: the user runs the system only on two Macs (two Claude accounts) and
+wants $0 LLM spend by using the existing flat-rate Claude subscriptions rather than
+paying per-token for OpenAI. CLIProxyAPI is a localhost daemon GitHub Actions can't
+reach, so synthesis necessarily relocates onto the Mac and runs as a manual command
+(`make ingest` / `make publish`). The capture path (clip → `raw/`) is unchanged.
+
+**Constraints knowingly traded — scoped to the new engine only:** "Zero local
+daemon — nothing runs on the Mac" and "ingestion is GitHub Actions only" do NOT
+hold for `pkm-engine-local` (the proxy is a user-launched process; ingestion is
+local + manual). All other hard constraints hold and are in fact reinforced: $0
+infra (free tier + existing subscription, no per-call cost), `raw/` immutable, no
+database, no secrets committed. Surfaced to the user (Mode C) before building; they
+chose a separate engine over amending this one. Reversible: deleting the sibling
+repo restores the original single-engine setup with no change here.
+
+---
+
 ### Frontmatter sanitizer — quote free-text fields at write time (2026-06-24)
 
 The model writes each note's YAML frontmatter itself. Two notes ingested 2026-06-24
