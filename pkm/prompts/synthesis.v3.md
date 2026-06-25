@@ -34,7 +34,7 @@ Use Obsidian callout syntax (`> [!type] Title` then `>` lines) — it renders as
 title: "<the real article title>"
 url: <source url>
 source: "<publication / author>"
-saved: <date_saved from the raw front matter>
+saved: <date_saved from the raw front matter — copy the FULL timestamp VERBATIM, e.g. 2026-06-25T15:17:40.861Z; do NOT truncate to the date (the dashboard sorts by, and displays, the time)>
 type: <article | essay | analysis | news | explainer>
 tags: [3-6 lowercase topical tags]
 reading_time: <"~N min" — estimate the ORIGINAL's length, words/200>
