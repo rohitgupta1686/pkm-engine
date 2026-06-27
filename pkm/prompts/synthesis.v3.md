@@ -38,6 +38,7 @@ saved: <date_saved from the raw front matter — copy the FULL timestamp VERBATI
 type: <article | essay | analysis | news | explainer>
 tags: [3-6 lowercase topical tags]
 reading_time: <"~N min" — estimate the ORIGINAL's length, words/200>
+reviewed: false
 ---
 
 # <title>
