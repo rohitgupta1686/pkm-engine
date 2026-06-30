@@ -120,6 +120,9 @@ def sanitize_frontmatter(markdown: str) -> str:
     for line in fm.group(1).split("\n"):
         m = _FIELD_LINE_RE.match(line)
         lines.append(_emit_field(m.group(1), _unquote(m.group(2))) if m else line)
+    # Guarantee reviewed field is present; model sometimes omits it.
+    if not any(re.match(r"^reviewed:", ln) for ln in lines):
+        lines.append("reviewed: false")
     return markdown[: fm.start(1)] + "\n".join(lines) + markdown[fm.end(1) :]
 
 
