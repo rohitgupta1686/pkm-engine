@@ -18,7 +18,7 @@ from pathlib import Path
 # changes materially so prior cached notes are not reused.
 SYNTH_AGENT_NAME = "note_synthesizer"
 SYNTH_PROMPT_TEMPLATE = "synthesis.v3.md"
-SYNTH_PROMPT_VERSION = "v3"
+SYNTH_PROMPT_VERSION = "v4"
 
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / SYNTH_PROMPT_TEMPLATE
 
