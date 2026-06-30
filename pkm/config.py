@@ -22,5 +22,11 @@ class Settings(BaseSettings):
     # Vault root (a git checkout). Notes are written under <vault>/<notes_dirname>.
     vault_path: str = ""
 
+    # Source-notes capture folder (books/podcasts/lectures), typically an Obsidian
+    # vault synced via iCloud, e.g.
+    #   ~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Sources
+    # Read by `pkm ingest-notes`. Override PKM_SOURCES_DIR.
+    sources_dir: str = ""
+
 
 settings = Settings()

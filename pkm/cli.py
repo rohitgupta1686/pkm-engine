@@ -12,6 +12,7 @@ Usage:
     pkm --help
     pkm ingest --raw <path> [--new-only]            # one capture → one note
     pkm batch-ingest [--vault <path>] [--new-only]   # all raw/*.md → notes/
+    pkm ingest-notes [--sources <path>] [--vault <path>]  # book/podcast notes → notes/
     (synthesize / batch-synthesize are aliases.)
 
 Security:
@@ -75,6 +76,27 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Skip captures whose note already exists in <vault>/notes/.",
     )
 
+    # -- ingest-notes: book/podcast/lecture notes folder → notes/ -------------
+    notes_parser = subparsers.add_parser(
+        "ingest-notes",
+        help="Synthesize personal notes on books/podcasts/lectures into notes/.",
+        description=(
+            "Scan a capture folder (one .md per source, synced via iCloud/Obsidian) "
+            "and synthesize each changed source into <vault>/notes/ with the "
+            "source-notes prompt. A JSON state sidecar in the vault skips unchanged "
+            "files; spend is capped like batch-ingest. Idempotent — re-running with "
+            "no edits makes no LLM calls."
+        ),
+    )
+    notes_parser.add_argument(
+        "--sources", metavar="PATH", default=None,
+        help="Capture folder of source notes. Defaults to PKM_SOURCES_DIR from settings.",
+    )
+    notes_parser.add_argument(
+        "--vault", metavar="PATH", default=None,
+        help="Path to the vault root directory. Defaults to VAULT_PATH from settings.",
+    )
+
     return parser
 
 
@@ -87,6 +109,8 @@ def app() -> None:
         _cmd_synthesize(args)
     elif args.subcommand in ("batch-ingest", "batch-synthesize"):
         _cmd_batch_synthesize(args)
+    elif args.subcommand == "ingest-notes":
+        _cmd_ingest_notes(args)
     else:
         parser.print_help()
         sys.exit(0 if args.subcommand is None else 1)
@@ -192,4 +216,50 @@ def _cmd_batch_synthesize(args: argparse.Namespace) -> None:
     }
     print(json.dumps(summary, indent=2))
     if failed > 0:
+        sys.exit(1)
+
+
+def _cmd_ingest_notes(args: argparse.Namespace) -> None:
+    """Execute ingest-notes (book/podcast/lecture capture folder → notes/).
+
+    Reads a live Markdown capture folder (synced via iCloud/Obsidian), synthesizing
+    each changed source into <vault>/notes/ with the source-notes prompt. Unchanged
+    files are skipped via the vault state sidecar; spend is capped in-memory.
+    """
+    from pkm.config import Settings
+    from pkm.pipeline.ingest_source_notes import run_source_notes_ingest
+
+    settings = Settings()
+    if not settings.openai_api_key:
+        print("ERROR: OPENAI_API_KEY is not set.", file=sys.stderr)
+        sys.exit(1)
+
+    sources_dir = args.sources or settings.sources_dir
+    if not sources_dir:
+        print(
+            "ERROR: source folder not set (use --sources or set PKM_SOURCES_DIR).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    sources_path = Path(sources_dir)
+    if not sources_path.is_dir():
+        print(f"ERROR: source folder not found: {sources_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    vault_root = args.vault or settings.vault_path
+    if not vault_root:
+        print("ERROR: VAULT_PATH is not set (use --vault or set VAULT_PATH).", file=sys.stderr)
+        sys.exit(1)
+
+    client = _build_synthesis_client(settings)
+    summary = run_source_notes_ingest(
+        client,
+        sources_dir=sources_path,
+        vault_root=Path(vault_root),
+        model=settings.synthesis_model,
+        notes_dirname=settings.notes_dirname,
+        cost_cap_usd=settings.run_cost_cap_usd,
+    )
+    print(json.dumps(summary, indent=2))
+    if summary["failed"] > 0:
         sys.exit(1)

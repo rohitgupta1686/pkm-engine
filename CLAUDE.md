@@ -28,8 +28,14 @@ plain Markdown read in Obsidian (which provides backlinks/graph/search for free)
 - **Note I/O:** `pkm/store/notes.py`. **LLM transport:** `pkm/llm/client.py` (OpenAI),
   run with `conn=None` (DB-free; `pkm/llm/base_client.py` only caches when given a conn).
 - **CLI:** `pkm ingest` / `pkm batch-ingest` (aliases `synthesize` / `batch-synthesize`).
+- **Source-notes path:** `pkm ingest-notes` reads a live Markdown capture folder
+  (books/podcasts/lectures, one `.md` per source, synced via iCloud/Obsidian; set
+  `PKM_SOURCES_DIR`) → `notes/`. Separate prompt `pkm/prompts/synthesis-notes.v1.md`
+  (synthesizes *my notes about* a source, not the source text); delta state in
+  `notes/.notes-state.json`. Reader `pkm/ingest/md_reader.py`; loop
+  `pkm/pipeline/ingest_source_notes.py`. v1 = full re-synthesis on change, no OCR.
 - **Model:** `gpt-5.4` locked (`PKM_SYNTHESIS_MODEL`); pricing in `pkm/llm/pricing.py`.
-- **Tests:** `tests/test_synthesize.py` (runs without OpenAI via a fake client).
+- **Tests:** `tests/test_synthesize.py` + `tests/test_ingest_notes.py` (both run without OpenAI via a fake client).
 
 ## Hard Constraints
 

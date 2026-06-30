@@ -20,17 +20,24 @@ SYNTH_AGENT_NAME = "note_synthesizer"
 SYNTH_PROMPT_TEMPLATE = "synthesis.v3.md"
 SYNTH_PROMPT_VERSION = "v4"
 
-_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / SYNTH_PROMPT_TEMPLATE
+# Sibling "engine" for personal notes ON a long-form source (book / podcast /
+# lecture). Same single-call machinery, different prompt + input shape — see
+# pkm/prompts/synthesis-notes.v1.md and pkm.pipeline.ingest_source_notes.
+NOTES_AGENT_NAME = "source_notes_synthesizer"
+NOTES_PROMPT_TEMPLATE = "synthesis-notes.v1.md"
+NOTES_PROMPT_VERSION = "notes-v1"
+
+_PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 
-def load_synthesis_prompt() -> str:
-    """Return the synthesis system prompt text (the entire engine)."""
-    if not _PROMPT_PATH.exists():
+def load_synthesis_prompt(template: str = SYNTH_PROMPT_TEMPLATE) -> str:
+    """Return a synthesis system prompt's text (the entire engine for that path)."""
+    path = _PROMPTS_DIR / template
+    if not path.exists():
         raise FileNotFoundError(
-            f"Synthesis prompt not found: {_PROMPT_PATH}. "
-            f"Expected pkm/prompts/{SYNTH_PROMPT_TEMPLATE}."
+            f"Synthesis prompt not found: {path}. Expected pkm/prompts/{template}."
         )
-    return _PROMPT_PATH.read_text(encoding="utf-8")
+    return path.read_text(encoding="utf-8")
 
 
 def _build_user_message(
@@ -79,6 +86,9 @@ def synthesize_note(
     source_id: str | None = None,
     model: str | None = None,
     recent_frames: list[str] | None = None,
+    prompt_template: str = SYNTH_PROMPT_TEMPLATE,
+    prompt_version: str = SYNTH_PROMPT_VERSION,
+    agent_name: str = SYNTH_AGENT_NAME,
 ) -> dict:
     """Turn one raw capture into one Markdown note via a single LLM call.
 
@@ -90,6 +100,11 @@ def synthesize_note(
         model:      model id to call; defaults to the client's caller passing
                     settings.synthesis_model. Required — no implicit default here.
         recent_frames: wildcard frames used by recent notes, to avoid repeating.
+        prompt_template: which prompt file under pkm/prompts/ is the "engine" for
+                    this call. Defaults to the article prompt (synthesis.v3.md);
+                    the source-notes path passes NOTES_PROMPT_TEMPLATE.
+        prompt_version: cache-key version for this prompt (bump on material edits).
+        agent_name: agent_runs identity for this call path.
 
     Returns:
         The dict from ``llm_client.call`` — ``result`` holds the note Markdown
@@ -98,7 +113,7 @@ def synthesize_note(
     if not model:
         raise ValueError("synthesize_note: a model id is required (settings.synthesis_model).")
 
-    prompt = load_synthesis_prompt()
+    prompt = load_synthesis_prompt(prompt_template)
     user_message = _build_user_message(raw_text, existing_titles or [], recent_frames or [])
 
     messages = [
@@ -107,9 +122,9 @@ def synthesize_note(
     ]
 
     return llm_client.call(
-        agent_name=SYNTH_AGENT_NAME,
+        agent_name=agent_name,
         model=model,
-        prompt_version=SYNTH_PROMPT_VERSION,
+        prompt_version=prompt_version,
         messages=messages,
         # input_text is the cache-key payload — must include BOTH the raw capture
         # and the linkable slug list so changing either busts the cache correctly.
