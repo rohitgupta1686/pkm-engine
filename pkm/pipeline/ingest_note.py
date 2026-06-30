@@ -12,7 +12,12 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from pkm.pipeline.synthesize import synthesize_note
+from pkm.pipeline.synthesize import (
+    SYNTH_AGENT_NAME,
+    SYNTH_PROMPT_TEMPLATE,
+    SYNTH_PROMPT_VERSION,
+    synthesize_note,
+)
 from pkm.store.notes import (
     body_from_raw,
     list_note_slugs,
@@ -42,6 +47,10 @@ def run_note_ingest(
     notes_dirname: str = "notes",
     new_only: bool = False,
     min_body_chars: int = MIN_BODY_CHARS,
+    prompt_template: str = SYNTH_PROMPT_TEMPLATE,
+    prompt_version: str = SYNTH_PROMPT_VERSION,
+    agent_name: str = SYNTH_AGENT_NAME,
+    feed_recent_frames: bool = True,
 ) -> dict:
     """Synthesize one note from one raw capture.
 
@@ -55,6 +64,12 @@ def run_note_ingest(
         new_only:   if True, skip when the target note already exists.
         min_body_chars: captures whose body (after front matter) has fewer than
                     this many non-whitespace chars are skipped without an LLM call.
+        prompt_template/prompt_version/agent_name: select the synthesis "engine".
+                    Defaults are the article prompt; the source-notes path
+                    (ingest_source_notes) overrides them with the notes prompt.
+        feed_recent_frames: when True, pass recent wildcard frames to steer variety.
+                    The notes prompt has no wildcard section, so that path sets
+                    this False to avoid feeding an irrelevant block.
 
     Returns:
         A JSON-serializable result dict: slug, note_path, raw_path, status,
@@ -96,8 +111,10 @@ def run_note_ingest(
     linkable = [s for s in existing if s != slug]
 
     # Recent wildcard frames → steer this stateless call away from repeating them.
-    recent_frames = recent_wildcard_frames(
-        vault_root, notes_dirname, limit=RECENT_FRAMES_WINDOW
+    recent_frames = (
+        recent_wildcard_frames(vault_root, notes_dirname, limit=RECENT_FRAMES_WINDOW)
+        if feed_recent_frames
+        else []
     )
 
     call_result = synthesize_note(
@@ -107,6 +124,9 @@ def run_note_ingest(
         source_id=slug,
         model=model,
         recent_frames=recent_frames,
+        prompt_template=prompt_template,
+        prompt_version=prompt_version,
+        agent_name=agent_name,
     )
 
     note_md = call_result.get("result")

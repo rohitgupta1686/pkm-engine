@@ -11,6 +11,43 @@ Logged autonomously during execution. These are reversible — rework < 1 day.
 
 ---
 
+### Source-notes ingest — `pkm ingest-notes`, Markdown in iCloud, full re-synthesis (2026-06-30)
+
+A second input path beside article clips: personal notes on long-form sources I'm
+consuming — **books AND podcasts/lectures/talks/courses**. One `.md` per source in
+a capture folder (an Obsidian vault synced via iCloud), read by a new local CLI
+`pkm ingest-notes`. The input is *my fragmentary notes about* a source, not the
+source's full text, so it uses a separate prompt (`pkm/prompts/synthesis-notes.v1.md`)
+with sections What this is / Big ideas / Notes & highlights / My reactions /
+Connects to. Reuses the single-call machinery: `synthesize_note` gained a
+`prompt_template`/`prompt_version`/`agent_name` parameter so the article path is
+byte-unchanged; `write_note`, slugs, cross-links and the cost cap are shared.
+
+Three v1-scope choices, each chosen for simplicity over the original (Opus-reviewed)
+design and each reversible:
+
+1. **Format = Markdown, not `.docx`.** Binary Word files create non-mergeable iCloud
+   conflict copies (→ orphaned notes) and need `python-docx`; plain text makes the
+   delta SHA bulletproof and drops the dependency. The user already lives in Obsidian.
+2. **Full re-synthesis on any body change** (skip when content SHA is unchanged) —
+   *not* the originally designed incremental paragraph-append. Re-running one clean
+   call keeps the note coherent and is on-brand with the June-2026 single-call
+   redesign. Append-optimization is deferred until per-source cost is a real problem.
+3. **State keyed by slug** in `notes/.notes-state.json` (committed in the vault).
+   Renaming a capture file changes its slug → treated as a new source, old note
+   orphaned. The rename-proof `pkm_id`-in-frontmatter anchor is a documented future
+   upgrade; state is rebuildable any time.
+
+iCloud safety: files modified within 60s (mid-sync) or unreadable are skipped that
+run. OCR of pasted page/slide photos is deferred (`![[image]]` refs pass through
+untouched; a `--ocr` flag is the planned follow-up). Spend is capped exactly like
+`batch-ingest` (soft cap, may overshoot by one call). Tests: `tests/test_ingest_notes.py`
+(14, fake client, no OpenAI). Constraints held: $0 infra, no DB, no secrets; the
+"zero local daemon" constraint is already relaxed for the local-engine path this
+runs alongside. Reversible: delete the new modules + prompt + state file to revert.
+
+---
+
 ### Sibling engine `pkm-engine-local` — local Claude account via CLIProxyAPI (2026-06-25)
 
 A second, additive engine lives in `../pkm-engine-local`. It routes each synthesis

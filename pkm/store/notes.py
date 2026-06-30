@@ -31,6 +31,8 @@ _FIELD_LINE_RE = re.compile(
     rf"^({'|'.join(_FREE_TEXT_FIELDS)}):\s*(.*?)\s*$"
 )
 
+_MERMAID_BLOCK_RE = re.compile(r"(```mermaid[^\n]*\n)(.*?)(```)", re.DOTALL)
+
 # A wildcard callout header is the only callout whose title leads with one of the
 # six wildcard emojis (the others — Thesis/By the numbers/Worth keeping/Open
 # threads — never do). Capture the emoji+label so we can feed it back as
@@ -126,6 +128,20 @@ def sanitize_frontmatter(markdown: str) -> str:
     return markdown[: fm.start(1)] + "\n".join(lines) + markdown[fm.end(1) :]
 
 
+def sanitize_mermaid(markdown: str) -> str:
+    """Replace literal ``\\n`` with ``<br>`` inside Mermaid node labels.
+
+    The model occasionally emits ``A[foo\\nbar]``; Obsidian's Mermaid renders the
+    literal characters ``\\n`` rather than a line break, garbling the diagram. The
+    prompt forbids it but the model ignores it, so this is the write-time guarantee.
+    Scope is limited to ```mermaid blocks so legitimate ``\\n`` in prose is untouched.
+    Idempotent; no-op when there is no mermaid block.
+    """
+    def _fix(m):
+        return m.group(1) + m.group(2).replace("\\n", "<br>") + m.group(3)
+    return _MERMAID_BLOCK_RE.sub(_fix, markdown)
+
+
 def notes_dir(vault_root: Path, notes_dirname: str = "notes") -> Path:
     """Return the notes directory under the vault root."""
     return Path(vault_root) / notes_dirname
@@ -197,7 +213,9 @@ def write_note(
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{safe_slug}.md"
     # Guarantee parseable frontmatter regardless of what the model emitted, then
-    # normalize to a single trailing newline for byte-stable re-writes.
+    # fix literal \n in mermaid node labels, then normalize to a single trailing
+    # newline for byte-stable re-writes.
     markdown = sanitize_frontmatter(markdown)
+    markdown = sanitize_mermaid(markdown)
     path.write_text(markdown.rstrip("\n") + "\n", encoding="utf-8")
     return path

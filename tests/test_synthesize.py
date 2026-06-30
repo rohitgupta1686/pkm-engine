@@ -24,6 +24,7 @@ from pkm.store.notes import (  # noqa: E402
     list_note_slugs,
     recent_wildcard_frames,
     sanitize_frontmatter,
+    sanitize_mermaid,
     slug_for_raw,
     title_from_raw,
     wildcard_frame_of,
@@ -392,6 +393,55 @@ def test_synthesized_note_includes_reviewed_field():
         fm = _parse_frontmatter(content)
         assert "reviewed" in fm
         assert fm["reviewed"] is False
+
+
+def test_sanitize_mermaid_fixes_literal_backslash_n_in_block():
+    # (a) \n inside a mermaid block becomes <br>
+    md = "```mermaid\ngraph TD\n  A[Dopamine spike\\nanticipation]\n```\n"
+    out = sanitize_mermaid(md)
+    assert "<br>" in out
+    assert "\\n" not in out
+
+
+def test_sanitize_mermaid_leaves_prose_and_other_code_blocks_untouched():
+    # (b) \n OUTSIDE a mermaid block (in prose or a python block) is untouched.
+    prose = "Here is a literal \\n in prose.\n"
+    py_block = "```python\nprint('hello\\nworld')\n```\n"
+    md = prose + py_block
+    assert sanitize_mermaid(md) == md
+
+
+def test_sanitize_mermaid_noop_without_mermaid_block():
+    # (c) No mermaid block → input unchanged.
+    md = "# Just a heading\n\nSome prose with \\n sequences.\n"
+    assert sanitize_mermaid(md) == md
+
+
+def test_sanitize_mermaid_is_idempotent():
+    # (d) Running twice == running once.
+    md = "```mermaid\ngraph LR\n  X[first\\nsecond]\n```\n"
+    once = sanitize_mermaid(md)
+    twice = sanitize_mermaid(once)
+    assert once == twice
+
+
+def test_write_note_applies_sanitize_mermaid():
+    # (e) write_note applies sanitize_mermaid: \n in mermaid block → <br> on disk.
+    body = (
+        "---\n"
+        "title: Mermaid Test\n"
+        "source: Test\n"
+        "---\n\n"
+        "```mermaid\n"
+        "graph TD\n"
+        "  A[Dopamine spike\\nanticipation]\n"
+        "```\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        path = write_note(Path(tmp), "mermaid-test", body)
+        content = path.read_text()
+        assert "<br>" in content
+        assert "\\n" not in content
 
 
 def _run_all():
