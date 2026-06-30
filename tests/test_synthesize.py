@@ -55,7 +55,12 @@ RAW_STUB = (
     "---\n"
 )
 
-NOTE_MD = "---\ntitle: x\n---\n\n# x\n\n> [!abstract] Thesis\n> A note.\n"
+NOTE_MD = (
+    "---\n"
+    "title: x\n"
+    "reviewed: false\n"
+    "---\n\n# x\n\n> [!abstract] Thesis\n> A note.\n"
+)
 
 # A note carrying a "Zoom out" wildcard, plus decoy callouts that must NOT be
 # mistaken for a wildcard (no leading wildcard emoji).
@@ -371,6 +376,22 @@ def test_write_note_sanitizes_broken_frontmatter():
         path = write_note(Path(tmp), "foo", broken)
         fm = _parse_frontmatter(path.read_text())  # written file parses
         assert fm["title"] == "Foo: a broken title"
+
+
+def test_synthesized_note_includes_reviewed_field():
+    # New notes must include `reviewed: false` so they enter the vault review queue.
+    client = FakeLLMClient()
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        result = run_note_ingest(
+            client, vault_root=vault, raw_text=RAW, raw_path="raw/a.md", model="gpt-5.4"
+        )
+        assert result["status"] == "ok"
+        written = Path(result["note_path"])
+        content = written.read_text()
+        fm = _parse_frontmatter(content)
+        assert "reviewed" in fm
+        assert fm["reviewed"] is False
 
 
 def _run_all():
