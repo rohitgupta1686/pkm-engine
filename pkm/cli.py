@@ -186,12 +186,13 @@ def _cmd_synthesize(args: argparse.Namespace) -> None:
 def _cmd_batch_synthesize(args: argparse.Namespace) -> None:
     """Execute batch-ingest / batch-synthesize (all raw/*.md → notes/).
 
-    DB-free: spend is accumulated from each call's cost_usd and the batch aborts
-    before exceeding settings.run_cost_cap_usd (the T1-02 guardrail, now enforced
-    in-memory rather than via the Turso agent_runs ledger).
+    Submits every new capture as ONE OpenAI Batch job (50% discount) and blocks
+    until it completes, then writes the notes. DB-free: the vault git repo is the
+    only state; the T1-02 spend guardrail (settings.run_cost_cap_usd) is enforced
+    pre-submit (batch is all-at-once), deferring excess sources to the next run.
     """
     from pkm.config import Settings
-    from pkm.pipeline.ingest_note import run_note_ingest
+    from pkm.pipeline.batch_ingest import run_batch_ingest
 
     settings = Settings()
     if not settings.openai_api_key:
@@ -202,44 +203,20 @@ def _cmd_batch_synthesize(args: argparse.Namespace) -> None:
         print("ERROR: VAULT_PATH is not set (use --vault or set VAULT_PATH).", file=sys.stderr)
         sys.exit(1)
 
-    vault_root = Path(vault_root)
-    raw_files = sorted((vault_root / "raw").glob("**/*.md"))
-
     client = _build_synthesis_client(settings)
 
-    results, failed, spent, aborted = [], 0, 0.0, False
-    for raw_file in raw_files:
-        if spent >= settings.run_cost_cap_usd:
-            aborted = True
-            break
-        try:
-            r = run_note_ingest(
-                client,
-                vault_root=vault_root,
-                raw_text=raw_file.read_text(encoding="utf-8"),
-                raw_path=str(raw_file),
-                model=settings.synthesis_model,
-                notes_dirname=settings.notes_dirname,
-                new_only=args.new_only,
-            )
-            spent += r.get("cost_usd", 0.0)
-            results.append(r)
-        except Exception as exc:  # noqa: BLE001 — isolate per-file failures
-            failed += 1
-            results.append({"raw_path": str(raw_file), "status": "error", "error": str(exc)})
-
-    summary = {
-        "total": len(raw_files),
-        "ok": sum(1 for r in results if r.get("status") == "ok"),
-        "skipped": sum(1 for r in results if r.get("status") == "skipped"),
-        "skipped_empty": sum(1 for r in results if r.get("status") == "skipped_empty"),
-        "failed": failed,
-        "cost_usd": round(spent, 5),
-        "cost_capped": aborted,
-        "results": results,
-    }
+    summary = run_batch_ingest(
+        client,
+        vault_root=Path(vault_root),
+        model=settings.synthesis_model,
+        new_only=args.new_only,
+        notes_dirname=settings.notes_dirname,
+        cost_cap=settings.run_cost_cap_usd,
+        poll_interval=settings.batch_poll_interval_sec,
+        timeout=settings.batch_timeout_sec,
+    )
     print(json.dumps(summary, indent=2))
-    if failed > 0:
+    if summary["failed"] > 0:
         sys.exit(1)
 
 
