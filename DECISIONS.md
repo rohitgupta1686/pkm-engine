@@ -11,6 +11,60 @@ Logged autonomously during execution. These are reversible — rework < 1 day.
 
 ---
 
+### Article ingest → OpenAI Batch API on `gpt-5.5`, fired per-clip (2026-07-09)
+
+Two changes to the article path (`raw/` → `notes/`), requested by the user:
+
+1. **Model `gpt-5.4` → `gpt-5.5`.** New default in `pkm/config.py` (`synthesis_model`
+   → `GPT55` in `pkm/llm/models.py`) and a `PRICING["gpt-5.5"]` entry ($5.00 / $30.00
+   per 1M in/out — 2× gpt-5.4). Adding the pricing entry is mandatory: `compute_cost`
+   raises `KeyError` on an unknown model by design, so every path (`ingest`, `digest`,
+   `ingest-notes`) would have broken otherwise.
+2. **Batch API for `batch-ingest`.** The nightly/per-clip article path now submits all
+   new captures as ONE OpenAI Batch job instead of N synchronous calls. Batch bills at
+   **50% off**, so `gpt-5.5` via batch = **$2.50 / $15.00** — the *same* per-token cost
+   as the old `gpt-5.4` sync path. A cost-neutral model upgrade. New `batch: bool` param
+   on `compute_cost` applies the 0.5 discount; new `pkm/pipeline/batch_ingest.py`
+   (`prepare_requests` + `run_batch_ingest`) reuses the sync path's pre-synthesis
+   decisions and `write_note`; batch transport (`build_batch_request` / `submit_batch` /
+   `poll_batch` / `collect_batch`) added to `pkm/llm/client.py`, sharing the request body
+   with `_generate` via a new `_chat_kwargs`. Tests: `tests/test_batch_ingest.py`
+   (`FakeBatchClient`, no OpenAI). `digest` / single `ingest` / `ingest-notes` stay
+   synchronous but on `gpt-5.5`.
+
+**Per-clip trigger.** Uncommented `repository_dispatch: types: [ingest]` in
+`.github/workflows/ingest.yml` so a note is synthesized right after a clip lands (the
+capture Worker already fires `repository_dispatch(ingest)` on every clip — no Worker
+change). The nightly `schedule` stays on as an idempotent backstop (`--new-only`).
+`timeout-minutes` 30 → 360 because the job now block-polls the batch.
+
+**Decisions within this:**
+- *Blocking poll in one job*, not a split submit/collect workflow. Preserves the
+  DB-free / single-job / no-state-handoff design; pkm-engine is public → free Actions
+  minutes. In-job `batch_timeout_sec` (90 min) cancels a stalled batch so it can't bill
+  without committing a note; next run re-submits.
+- *Cost cap moved pre-submit.* Batch is all-at-once, so the old in-memory per-item
+  early-abort can't apply. `prepare_requests` estimates tokens and defers sources once a
+  batch's projected (batch-rate) cost would exceed `run_cost_cap_usd`; deferred sources
+  are picked up next run.
+- *Intra-batch limitation accepted.* Requests are built from one up-front notes snapshot,
+  so notes in the same batch can't cross-link to / vary wildcard frames against each
+  other. Immaterial at per-clip volume (batch ≈ 1); only the backstop batch co-locates
+  multiple notes.
+
+**Latency trade:** "immediately" = the trigger fires the instant a clip lands, not that
+the note appears in seconds — the Batch API is async (minutes typically, up to a 24h SLA).
+We took the 50% discount over sync's ~13s latency, which is what "use the batch API" implies.
+
+**Config env note (correctness):** `Settings` sets no `env_prefix`, so env overrides bind
+to the bare field name uppercased (`SYNTHESIS_MODEL`, `RUN_COST_CAP_USD`, `BATCH_TIMEOUT_SEC`)
+— the `PKM_`-prefixed names in older docs/workflow did **not** bind (the old
+`PKM_RUN_COST_CAP_USD` was a no-op that happened to equal the default). Left the prefix
+alone (a blanket `PKM_` would break `OPENAI_API_KEY`); drove the model via the code default
+and corrected the workflow comment.
+
+---
+
 ### Reversal — cloud OpenAI `pkm-engine` is primary again; digest ported; `pkm-engine-local` to standby (2026-07-09)
 
 **Reverses the 2026-06-25 entry below.** The user wants `pkm-engine` (OpenAI
