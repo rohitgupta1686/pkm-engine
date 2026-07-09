@@ -1,31 +1,19 @@
-name: ingest
+name: digest
 
-# Cloud ingestion (OpenAI GPT-5.4) is the PRIMARY path again as of 2026-07-09,
-# reversing the 2026-06-25 note below. The nightly schedule is back on: existing
-# OpenAI credit is the go-forward spend, and the sibling local-Claude engine
-# `pkm-engine-local` is retired to standby. `repository_dispatch` (per-clip,
-# fired by the capture worker) stays commented — nightly batching is enough;
-# see DECISIONS.md (2026-07-09).
-#
-# (2026-06-25 history: this was demoted to a MANUAL fallback only, so CI wouldn't
-# pre-empt pkm-engine-local and re-incur OpenAI spend on every clip. The capture
-# worker still commits raw/*.md to the vault and fires repository_dispatch(ingest)
-# regardless of what's enabled here.)
-#
-# This job checks out the vault, synthesizes one Markdown note per new raw capture
-# via a single OpenAI GPT-5.4 call, and commits the notes back. No database.
+# Weekly cross-note briefing (OpenAI GPT-5.4), added 2026-07-09 alongside the
+# re-enabled nightly `ingest.yml` — see DECISIONS.md (2026-07-09). This job
+# checks out the vault, folds everything saved to notes/ in the last 7 days
+# into ONE `type: digest` note via a single OpenAI GPT-5.4 call, and commits
+# it back. No database; same structure as ingest.yml, separate concurrency
+# group so a Sunday digest run never contends with a nightly ingest run.
 
 on:
-  workflow_dispatch: # manual run, always available
+  workflow_dispatch: # manual run, e.g. to dry-run before trusting the cron
   schedule:
-    - cron: "0 3 * * *"   # nightly cloud ingest (OpenAI) — re-enabled 2026-07-09
-  # Per-clip dispatch stays off (nightly batching is enough). Uncomment to fire
-  # on every capture instead of/in addition to the nightly cron:
-  # repository_dispatch:
-  #   types: [ingest]
+    - cron: "0 4 * * 0"    # Sundays 04:00 UTC, after Saturday night's ingest
 
 concurrency:
-  group: ingest
+  group: digest
   cancel-in-progress: false
 
 permissions:
@@ -34,9 +22,8 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    # One LLM call per source (~13s each) + commit. Generous ceiling for a large
-    # backlog; fast nightly runs finish early. Public repo → free minutes, $0.
-    timeout-minutes: 30
+    # One LLM call total (not per-source like ingest) — a few minutes is generous.
+    timeout-minutes: 15
 
     steps:
       - name: Checkout engine code
@@ -61,41 +48,39 @@ jobs:
       - name: Install engine
         run: pip install -e ./engine   # no libsql/Rust deps → fast, wheel-only
 
-      - name: Run batch ingest (single GPT-5.4 call per source)
+      - name: Run weekly digest (single GPT-5.4 call)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # PKM_SYNTHESIS_MODEL defaults to gpt-5.4 (config.py); override here if needed.
-          PKM_RUN_COST_CAP_USD: "0.50"
-        run: pkm batch-ingest --new-only --vault "$GITHUB_WORKSPACE/vault"
+        run: pkm digest --days 7 --vault "$GITHUB_WORKSPACE/vault"
 
-      - name: Commit synthesized notes
+      - name: Commit digest note
         working-directory: vault
         run: |
           git config user.name "pkm-bot"
           git config user.email "pkm-bot@users.noreply.github.com"
           git add notes/
           if git diff --cached --quiet; then
-            echo "No new notes to commit."
+            echo "No digest note to commit (nothing saved this period)."
             exit 0
           fi
-          git commit -m "synthesize: $(date -u +%FT%TZ)"
-          # The capture worker pushes raw clips to this same branch, so a clip
-          # landing between our checkout and push rejects a bare push as
-          # non-fast-forward. Rebase our synthesize commit onto the latest
-          # remote and retry a few times to absorb concurrent clip pushes.
+          git commit -m "digest: $(date -u +%FT%TZ)"
+          # ingest.yml (or a concurrent clip commit) may land between our
+          # checkout and push, so a bare push can reject as non-fast-forward.
+          # Rebase and retry a few times to absorb that.
           for attempt in 1 2 3 4 5; do
             if git pull --rebase --autostash origin main && git push; then
-              echo "Pushed notes on attempt $attempt."
+              echo "Pushed digest on attempt $attempt."
               exit 0
             fi
             echo "Push attempt $attempt failed (concurrent push?); retrying in 5s..."
             sleep 5
           done
-          echo "ERROR: failed to push notes after 5 attempts." >&2
+          echo "ERROR: failed to push digest note after 5 attempts." >&2
           exit 1
 
       - name: Backup push to second remote
-        # GUARD-07: off-site mirror of the vault — now the ONLY irreplaceable asset
+        # GUARD-07: off-site mirror of the vault — the ONLY irreplaceable asset
         # (no Turso/Vectorize to rebuild from). The pkm-vault remote is authoritative;
         # this is a ONE-WAY mirror, so we force-push to overwrite any divergence on the
         # backup (e.g. an orphaned commit left when a prior run's primary push was

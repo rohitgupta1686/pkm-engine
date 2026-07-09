@@ -11,6 +11,67 @@ Logged autonomously during execution. These are reversible — rework < 1 day.
 
 ---
 
+### Reversal — cloud OpenAI `pkm-engine` is primary again; digest ported; `pkm-engine-local` to standby (2026-07-09)
+
+**Reverses the 2026-06-25 entry below.** The user wants `pkm-engine` (OpenAI
+`gpt-5.4`, GitHub Actions) to be the go-forward engine for all ingests again,
+to burn the existing OpenAI credit, with a later planned swap OpenAI → GLM-5.2
+once that credit is exhausted (see the GLM runbook further down). Empirically,
+the two engines were near-siblings: the synthesis prompts are byte-identical
+across repos, and `pkm-engine` already had the richer machinery (cost cap,
+`pkm/llm/pricing.py`, `BaseLLMClient` cache/cost seam). The only real feature
+gap was the weekly digest, which lived solely in `pkm-engine-local`.
+
+- **Articles** (`raw/` → `notes/`): nightly batch CI on OpenAI. Re-enabled the
+  `schedule: cron "0 3 * * *"` in `.github/workflows/ingest.yml` (kept
+  `repository_dispatch` commented — nightly batching is enough).
+- **Weekly digest** (`notes/` → one cross-note briefing): ported from
+  `pkm-engine-local/pkm_local/digest.py` into `pkm/pipeline/digest.py` +
+  `pkm/prompts/digest.v1.md` + a `pkm digest` CLI subcommand, and given its own
+  weekly CI workflow (`.github/workflows/digest.yml`, Sundays 04:00 UTC, its own
+  `concurrency: group: digest` so it never contends with the nightly ingest).
+  The only real adaptation from the local version: the local engine folds the
+  whole prompt into a single user turn with a `_TASK_BRIDGE` (a CLIProxyAPI/
+  Claude-OAuth workaround); on OpenAI the digest prompt is a normal **system**
+  message and the notes-block context is the **user** message, exactly like
+  `pkm/pipeline/synthesize.py` already does. Tests: `tests/test_digest.py`
+  (fake client, no OpenAI calls). No pricing change — `gpt-5.4` was already in
+  `pkm/llm/pricing.py`.
+- **Book/podcast source-notes**: no code change — `pkm ingest-notes` already
+  exists in `pkm-engine` and reads `PKM_SOURCES_DIR`. Runs **manually on the
+  Mac** with OpenAI instead of on the Mac with `pkm-engine-local`/CLIProxyAPI —
+  the iCloud source folder is only reachable from the Mac, and the mid-sync
+  safety guard only works reading iCloud directly. See the README's
+  "Book/podcast source-notes (Mac-run)" section.
+- **`pkm-engine-local`**: retired to standby (code untouched, no longer the
+  primary path). Reversible: re-disable the two cron triggers and switch the
+  Mac-run source-notes command back to `pkm-local ingest-notes` to revert.
+
+---
+
+### Switching provider to GLM-5.2 (runbook; docs only — no code change now)
+
+GLM is OpenAI-compatible, so once the OpenAI credit above is exhausted the
+swap is near-config-only through the existing `openai.OpenAI(base_url=...)`
+seam (`pkm/llm/client.py:141`):
+
+- **Env only:** `OPENAI_BASE_URL=<GLM OpenAI-compatible endpoint>`,
+  `OPENAI_API_KEY=<GLM key>`, `PKM_SYNTHESIS_MODEL=glm-5.2`.
+- **Required code touch (1, at swap time):** add a `glm-5.2` entry to `PRICING`
+  in `pkm/llm/pricing.py`. `compute_cost` raises `KeyError` on an unknown model
+  by design (never silently records `cost_usd=0.0`), so an unlisted model id
+  crashes every run until priced.
+- **Verify at swap time (potential code touch 2):** `_generate` in
+  `pkm/llm/client.py:158` sends `max_completion_tokens`. Many OpenAI-compatible
+  layers (GLM included) expect `max_tokens` instead. If GLM rejects
+  `max_completion_tokens`, add a small provider-tolerant branch there — flag
+  this as the one thing to test first at swap time.
+- **Optional:** add a `GLM52` constant to `pkm/llm/models.py` for tidiness.
+- **No code changes to `pricing.py` / `client.py` / `models.py` are made now** —
+  this section is a runbook for when the swap actually happens.
+
+---
+
 ### Source-notes ingest — `pkm ingest-notes`, Markdown in iCloud, full re-synthesis (2026-06-30)
 
 A second input path beside article clips: personal notes on long-form sources I'm
