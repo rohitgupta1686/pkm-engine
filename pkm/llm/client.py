@@ -5,6 +5,8 @@ orchestration lives in pkm.llm.base_client.BaseLLMClient. The single-call pipeli
 constructs this directly with conn=None (DB-free); see pkm.cli._build_synthesis_client.
 """
 import copy
+import io
+import json
 import logging
 import time
 from typing import Any
@@ -143,14 +145,19 @@ class LLMClient(BaseLLMClient):
     def _cost(self, model: str, tokens_in: int, cached_tokens: int, tokens_out: int) -> float:
         return compute_cost(model, tokens_in, cached_tokens, tokens_out)
 
-    def _generate(
+    def _chat_kwargs(
         self,
         model: str,
         messages: list[dict],
         output_schema: type[BaseModel] | None,
         max_tokens: int,
-    ) -> Generation:
-        """Call chat.completions.create with exponential backoff, return normalized."""
+    ) -> dict[str, Any]:
+        """Build the chat.completions request body shared by the sync and batch paths.
+
+        The sync path passes this straight to ``chat.completions.create``; the Batch
+        API path serializes it as the ``body`` of each JSONL request line, so both
+        paths send byte-identical request payloads.
+        """
         kwargs: dict[str, Any] = {
             "model": model,
             # gpt-5.x / o-series reject `max_tokens`; `max_completion_tokens` is
@@ -167,6 +174,17 @@ class LLMClient(BaseLLMClient):
                     "schema": _to_openai_strict_schema(output_schema.model_json_schema()),
                 },
             }
+        return kwargs
+
+    def _generate(
+        self,
+        model: str,
+        messages: list[dict],
+        output_schema: type[BaseModel] | None,
+        max_tokens: int,
+    ) -> Generation:
+        """Call chat.completions.create with exponential backoff, return normalized."""
+        kwargs = self._chat_kwargs(model, messages, output_schema, max_tokens)
 
         for attempt in range(3):
             try:
@@ -194,3 +212,123 @@ class LLMClient(BaseLLMClient):
             cached_tokens=cached_tokens,
             model=model,
         )
+
+    # --- OpenAI Batch API (async, 50% discount) --------------------------------
+    #
+    # The article-ingest path submits all its synthesis calls as one batch instead
+    # of N synchronous calls. Flow: build_batch_request (one per source) → submit_batch
+    # (upload JSONL + create batch) → poll_batch (block until terminal) → collect_batch
+    # (download + parse results by custom_id). See pkm.pipeline.batch_ingest.
+
+    def build_batch_request(
+        self,
+        custom_id: str,
+        model: str,
+        messages: list[dict],
+        max_tokens: int = _RETRY_MAX_COMPLETION_TOKENS,
+        output_schema: type[BaseModel] | None = None,
+    ) -> dict:
+        """One JSONL line for the /v1/chat/completions batch endpoint.
+
+        ``max_tokens`` defaults to the higher truncation-retry ceiling because the
+        async batch path can't do the sync path's on-the-fly truncation retry — a
+        generous ceiling minimizes ``finish_reason == "length"`` failures.
+        """
+        return {
+            "custom_id": custom_id,
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "body": self._chat_kwargs(model, messages, output_schema, max_tokens),
+        }
+
+    def submit_batch(self, requests: list[dict]) -> str:
+        """Upload the JSONL and create a 24h batch job; return the batch id."""
+        jsonl = "\n".join(json.dumps(r) for r in requests).encode("utf-8")
+        upload = self.client.files.create(
+            file=("batch.jsonl", io.BytesIO(jsonl)),
+            purpose="batch",
+        )
+        batch = self.client.batches.create(
+            input_file_id=upload.id,
+            endpoint="/v1/chat/completions",
+            completion_window="24h",
+        )
+        logger.info("submit_batch: created batch %s (%d requests)", batch.id, len(requests))
+        return batch.id
+
+    def poll_batch(self, batch_id: str, interval: int, timeout: int):
+        """Block until the batch reaches a terminal status or ``timeout`` seconds pass.
+
+        On timeout the batch is cancelled (so it can't keep billing without a note
+        being committed) and the last-retrieved batch object is returned — the caller
+        treats any non-``completed`` status as a failure and re-submits next run.
+        """
+        terminal = {"completed", "failed", "expired", "cancelled"}
+        deadline = time.monotonic() + timeout
+        while True:
+            batch = self.client.batches.retrieve(batch_id)
+            if batch.status in terminal:
+                logger.info("poll_batch: batch %s reached status=%s", batch_id, batch.status)
+                return batch
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "poll_batch: batch %s still %s after %ds — cancelling",
+                    batch_id, batch.status, timeout,
+                )
+                try:
+                    self.client.batches.cancel(batch_id)
+                except Exception:  # noqa: BLE001 — best-effort; report the timeout regardless
+                    logger.exception("poll_batch: cancel failed for %s", batch_id)
+                return self.client.batches.retrieve(batch_id)
+            time.sleep(interval)
+
+    def collect_batch(self, batch) -> dict[str, dict]:
+        """Parse a completed batch's output (+ error) files, keyed by custom_id.
+
+        Each successful entry is ``{text, tokens_in, tokens_out, cached_tokens}``.
+        A request that errored, returned a non-200, or hit the output-token ceiling
+        (``finish_reason == "length"``) is recorded as ``{error: <reason>}`` — the
+        caller skips writing its note so it's retried on the next run.
+        """
+        results: dict[str, dict] = {}
+
+        output_file_id = getattr(batch, "output_file_id", None)
+        if output_file_id:
+            for line in self._read_jsonl_file(output_file_id):
+                custom_id = line.get("custom_id")
+                if custom_id is None:
+                    continue
+                response = line.get("response") or {}
+                if line.get("error") or response.get("status_code") != 200:
+                    results[custom_id] = {"error": line.get("error") or response.get("status_code")}
+                    continue
+                body = response.get("body") or {}
+                choice = (body.get("choices") or [{}])[0]
+                finish_reason = choice.get("finish_reason")
+                text = ((choice.get("message") or {}).get("content")) or ""
+                if finish_reason == "length" or not text.strip():
+                    results[custom_id] = {"error": f"finish_reason={finish_reason}"}
+                    continue
+                usage = body.get("usage") or {}
+                details = usage.get("prompt_tokens_details") or {}
+                results[custom_id] = {
+                    "text": text,
+                    "tokens_in": usage.get("prompt_tokens", 0) or 0,
+                    "tokens_out": usage.get("completion_tokens", 0) or 0,
+                    "cached_tokens": details.get("cached_tokens", 0) or 0,
+                }
+
+        error_file_id = getattr(batch, "error_file_id", None)
+        if error_file_id:
+            for line in self._read_jsonl_file(error_file_id):
+                custom_id = line.get("custom_id")
+                if custom_id is not None and custom_id not in results:
+                    results[custom_id] = {"error": line.get("error") or "batch_error"}
+
+        return results
+
+    def _read_jsonl_file(self, file_id: str) -> list[dict]:
+        """Download an OpenAI file and parse it as JSONL (one object per line)."""
+        content = self.client.files.content(file_id)
+        text = content.text if hasattr(content, "text") else content.read().decode("utf-8")
+        return [json.loads(ln) for ln in text.splitlines() if ln.strip()]
