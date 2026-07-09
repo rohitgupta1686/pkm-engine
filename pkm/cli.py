@@ -13,6 +13,7 @@ Usage:
     pkm ingest --raw <path> [--new-only]            # one capture → one note
     pkm batch-ingest [--vault <path>] [--new-only]   # all raw/*.md → notes/
     pkm ingest-notes [--sources <path>] [--vault <path>]  # book/podcast notes → notes/
+    pkm digest [--days N] [--vault <path>]           # notes/ (last N days) → digest note
     (synthesize / batch-synthesize are aliases.)
 
 Security:
@@ -97,6 +98,27 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to the vault root directory. Defaults to VAULT_PATH from settings.",
     )
 
+    # -- digest: notes/ (last N days) → one weekly briefing note --------------
+    digest_parser = subparsers.add_parser(
+        "digest",
+        help="Synthesize a weekly digest from notes saved in the last N days.",
+        description=(
+            "One OpenAI GPT-5.4 call turns everything saved to <vault>/notes/ in "
+            "the last N days into ONE cross-note briefing (themes, connections, "
+            "what's worth attention), written back as a `type: digest` note. "
+            "Prior digests are excluded from the input so it never folds itself "
+            "back in."
+        ),
+    )
+    digest_parser.add_argument(
+        "--days", type=int, default=7,
+        help="Look-back window in days (default 7).",
+    )
+    digest_parser.add_argument(
+        "--vault", metavar="PATH", default=None,
+        help="Path to the vault root directory. Defaults to VAULT_PATH from settings.",
+    )
+
     return parser
 
 
@@ -111,6 +133,8 @@ def app() -> None:
         _cmd_batch_synthesize(args)
     elif args.subcommand == "ingest-notes":
         _cmd_ingest_notes(args)
+    elif args.subcommand == "digest":
+        _cmd_digest(args)
     else:
         parser.print_help()
         sys.exit(0 if args.subcommand is None else 1)
@@ -263,3 +287,35 @@ def _cmd_ingest_notes(args: argparse.Namespace) -> None:
     print(json.dumps(summary, indent=2))
     if summary["failed"] > 0:
         sys.exit(1)
+
+
+def _cmd_digest(args: argparse.Namespace) -> None:
+    """Execute digest (last N days of notes/ → one weekly briefing note).
+
+    DB-free like the other single-call paths: one live LLM call, no cache. The
+    "nothing to digest" case is not an error — it just means fewer than one
+    note was saved in the window.
+    """
+    from pkm.config import Settings
+    from pkm.pipeline.digest import run_digest
+
+    settings = Settings()
+    if not settings.openai_api_key:
+        print("ERROR: OPENAI_API_KEY is not set.", file=sys.stderr)
+        sys.exit(1)
+    vault_root = args.vault or settings.vault_path
+    if not vault_root:
+        print("ERROR: VAULT_PATH is not set (use --vault or set VAULT_PATH).", file=sys.stderr)
+        sys.exit(1)
+
+    client = _build_synthesis_client(settings)
+    result = run_digest(
+        client,
+        vault_root=Path(vault_root),
+        model=settings.synthesis_model,
+        days=args.days,
+        notes_dirname=settings.notes_dirname,
+    )
+    print(json.dumps(result, indent=2))
+    if result["status"] == "empty":
+        print(f"\n(no notes saved in the last {args.days} days — nothing to digest)", file=sys.stderr)

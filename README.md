@@ -52,6 +52,32 @@ already exists (idempotency = the note file). `batch-ingest` aborts before excee
 pytest          # on a Python 3.12 venv
 ```
 
+## Book/podcast source-notes (Mac-run)
+
+Everything else in this repo runs in GitHub Actions; `pkm ingest-notes` is the one
+deliberately-manual, Mac-run exception. Why: its source folder is an Obsidian
+vault synced via **iCloud**, which is not reachable from a GitHub Actions runner,
+and the mid-sync safety guard (skip files modified within the last 60s) only
+works when reading iCloud directly on the machine that's syncing it. Low
+frequency (books/podcasts, not daily clips) makes a manual command fine.
+
+1. `pip install -e .` the `pkm-engine` package on the Mac (once).
+2. Set a Mac-local `.env` (gitignored — never committed):
+   ```
+   OPENAI_API_KEY=...
+   PKM_SOURCES_DIR=~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Sources
+   VAULT_PATH=/path/to/your/local/pkm-vault/checkout
+   ```
+3. `git pull` the vault checkout, then:
+   ```bash
+   pkm ingest-notes
+   ```
+4. Commit + push `notes/` **and** the updated `notes/.notes-state.json` (the
+   delta-state sidecar — without it every source re-synthesizes next run).
+
+See `DECISIONS.md` for the "Switching provider to GLM-5.2" runbook (the future
+swap once the current OpenAI credit runs out).
+
 ## Capture / Clipper Setup
 
 Clipping is one click from any browser page. The browser bookmarklet POSTs to a
