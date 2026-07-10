@@ -1,7 +1,7 @@
 # PKM Synthesis Prompt v3 — scannable, visual, surprising
 
 <!--
-The entire "engine": one LLM call per source (OpenAI GPT-5.4). This file is loaded
+The entire "engine": one LLM call per source. This file is loaded
 verbatim as the system prompt by pkm.pipeline.synthesize.synthesize_note. The user
 message carries the raw captured text + the list of existing note titles. Output is
 one Markdown note designed to be scanned in under a minute in Obsidian. No claim

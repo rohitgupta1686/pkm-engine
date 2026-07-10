@@ -1,15 +1,15 @@
 name: ingest
 
-# Cloud ingestion (OpenAI gpt-5.5, via the Batch API) is the PRIMARY path. As of
-# 2026-07-09 it fires PER CLIP: the capture worker commits raw/*.md and fires
-# repository_dispatch(ingest), which this workflow now listens for — so a note is
+# Cloud ingestion now uses Z.AI GLM-5.2 through the existing OpenAI-compatible
+# SDK path. It fires PER CLIP: the capture worker commits raw/*.md and fires
+# repository_dispatch(ingest), which this workflow listens for — so a note is
 # synthesized right after a clip lands rather than waiting for the nightly cron.
 # The nightly schedule stays on as an idempotent backstop (--new-only skips notes
-# that already exist). See DECISIONS.md (2026-07-09).
+# that already exist). See DECISIONS.md.
 #
-# This job checks out the vault, submits every new raw capture as ONE OpenAI Batch
-# job (gpt-5.5, 50% discount → cost-neutral vs the old gpt-5.4 sync path), blocks
-# until the batch completes, then commits the synthesized notes back. No database.
+# GLM-5.2 runs through synchronous chat completions because Z.AI's documented
+# OpenAI-compatible endpoint is /chat/completions; the OpenAI Batch API machinery
+# remains in code as an OpenAI fallback path. No database.
 
 on:
   workflow_dispatch: # manual run, always available
@@ -57,12 +57,13 @@ jobs:
       - name: Install engine
         run: pip install -e ./engine   # no libsql/Rust deps → fast, wheel-only
 
-      - name: Run batch ingest (one OpenAI Batch job, gpt-5.5)
+      - name: Run batch ingest (GLM-5.2 sync path)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          # synthesis_model defaults to gpt-5.5 (config.py). Env overrides use the
-          # bare field name (no PKM_ prefix): SYNTHESIS_MODEL / RUN_COST_CAP_USD /
-          # BATCH_TIMEOUT_SEC. Default cost cap is $0.50; leave unset to use it.
+          OPENAI_BASE_URL: https://api.z.ai/api/paas/v4/
+          # Settings has no env_prefix: use bare field names, not PKM_*.
+          SYNTHESIS_MODEL: glm-5.2
+          RUN_COST_CAP_USD: "0.50"
         run: pkm batch-ingest --new-only --vault "$GITHUB_WORKSPACE/vault"
 
       - name: Commit synthesized notes

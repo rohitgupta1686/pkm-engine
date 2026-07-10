@@ -1,11 +1,11 @@
 name: digest
 
-# Weekly cross-note briefing (OpenAI GPT-5.4), added 2026-07-09 alongside the
-# re-enabled nightly `ingest.yml` — see DECISIONS.md (2026-07-09). This job
-# checks out the vault, folds everything saved to notes/ in the last 7 days
-# into ONE `type: digest` note via a single OpenAI GPT-5.4 call, and commits
-# it back. No database; same structure as ingest.yml, separate concurrency
-# group so a Sunday digest run never contends with a nightly ingest run.
+# Weekly cross-note briefing using Z.AI GLM-5.2 through the existing
+# OpenAI-compatible SDK path. This job checks out the vault, folds everything
+# saved to notes/ in the last 7 days into ONE `type: digest` note via a single
+# GLM-5.2 call, and commits it back. No database; same structure as ingest.yml,
+# separate concurrency group so a Sunday digest run never contends with a
+# nightly ingest run.
 
 on:
   workflow_dispatch: # manual run, e.g. to dry-run before trusting the cron
@@ -48,10 +48,11 @@ jobs:
       - name: Install engine
         run: pip install -e ./engine   # no libsql/Rust deps → fast, wheel-only
 
-      - name: Run weekly digest (single GPT-5.4 call)
+      - name: Run weekly digest (single GLM-5.2 call)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          # PKM_SYNTHESIS_MODEL defaults to gpt-5.4 (config.py); override here if needed.
+          OPENAI_BASE_URL: https://api.z.ai/api/paas/v4/
+          SYNTHESIS_MODEL: glm-5.2
         run: pkm digest --days 7 --vault "$GITHUB_WORKSPACE/vault"
 
       - name: Commit digest note

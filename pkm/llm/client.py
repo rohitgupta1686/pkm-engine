@@ -1,8 +1,10 @@
-"""OpenAI implementation of the LLM client.
+"""OpenAI-compatible implementation of the LLM client.
 
 Transport + OpenAI-strict-schema only; all (optional) cache / agent_runs / retry
-orchestration lives in pkm.llm.base_client.BaseLLMClient. The single-call pipeline
-constructs this directly with conn=None (DB-free); see pkm.cli._build_synthesis_client.
+orchestration lives in pkm.llm.base_client.BaseLLMClient. The single-call
+pipeline constructs this directly with conn=None (DB-free); see
+pkm.cli._build_synthesis_client. The default endpoint is Z.AI's OpenAI-compatible
+GLM-5.2 API, while OpenAI remains usable by overriding OPENAI_BASE_URL/model.
 """
 import copy
 import io
@@ -132,14 +134,15 @@ def _strictify(node: Any) -> None:
 
 
 class LLMClient(BaseLLMClient):
-    """OpenAI-backed LLM client.
+    """OpenAI-compatible LLM client.
 
     Implements the provider seam (`_generate`, `_cost`); cache / agent_runs /
     retry orchestration is inherited from BaseLLMClient.
     """
 
-    def __init__(self, conn, api_key: str, base_url: str = "https://api.openai.com/v1") -> None:
+    def __init__(self, conn, api_key: str, base_url: str = "https://api.z.ai/api/paas/v4/") -> None:
         super().__init__(conn)
+        self.base_url = base_url.rstrip("/")
         self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
 
     def _cost(self, model: str, tokens_in: int, cached_tokens: int, tokens_out: int) -> float:
@@ -160,11 +163,10 @@ class LLMClient(BaseLLMClient):
         """
         kwargs: dict[str, Any] = {
             "model": model,
-            # gpt-5.x / o-series reject `max_tokens`; `max_completion_tokens` is
-            # the unified param accepted across current chat-completion models.
-            "max_completion_tokens": max_tokens,
             "messages": messages,
         }
+        token_param = "max_tokens" if self._uses_legacy_max_tokens(model) else "max_completion_tokens"
+        kwargs[token_param] = max_tokens
         if output_schema is not None:
             kwargs["response_format"] = {
                 "type": "json_schema",
@@ -332,3 +334,7 @@ class LLMClient(BaseLLMClient):
         content = self.client.files.content(file_id)
         text = content.text if hasattr(content, "text") else content.read().decode("utf-8")
         return [json.loads(ln) for ln in text.splitlines() if ln.strip()]
+
+    def _uses_legacy_max_tokens(self, model: str) -> bool:
+        """Z.AI's OpenAI-compatible Chat Completions API expects max_tokens."""
+        return model.startswith("glm-") or "api.z.ai" in self.base_url
