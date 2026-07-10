@@ -11,6 +11,36 @@ Logged autonomously during execution. These are reversible — rework < 1 day.
 
 ---
 
+### Execution — primary synthesis provider switched to Z.AI GLM-5.2 (2026-07-10)
+
+The planned OpenAI → GLM-5.2 swap is executed. Z.AI's GLM-5.2 docs confirm the
+OpenAI-compatible chat-completions endpoint and model id, so the system keeps the
+existing `openai.OpenAI(base_url=...)` SDK seam instead of adding a second provider
+path.
+
+- **Default endpoint/model:** `OPENAI_BASE_URL=https://api.z.ai/api/paas/v4/`,
+  `SYNTHESIS_MODEL=glm-5.2`; `OPENAI_API_KEY` is retained as the env var name but
+  now contains the Z.AI API key.
+- **Pricing:** `pkm/llm/pricing.py` now includes `glm-5.2` at $1.40 input,
+  $0.26 cached input, $4.40 output per 1M tokens (Z.AI pricing page checked
+  2026-07-10), preserving the existing fail-loud cost guardrail.
+- **Compatibility:** GLM-5.2 expects `max_tokens`, while OpenAI GPT fallback paths
+  still use `max_completion_tokens`; `pkm/llm/client.py` branches on GLM / Z.AI
+  base URL. Covered by `tests/test_llm_client.py`.
+- **Article ingest:** Z.AI's documented compatibility surface is synchronous
+  `/chat/completions`, not OpenAI's Batch API. `pkm batch-ingest` therefore uses
+  the synchronous per-source path for GLM/Z.AI; the OpenAI Batch API code from
+  the 2026-07-09 entry remains available as an OpenAI fallback.
+- **Workflows:** per-clip ingest and weekly digest pass the Z.AI base URL and
+  `SYNTHESIS_MODEL=glm-5.2` explicitly. Env overrides use bare settings names
+  (`SYNTHESIS_MODEL`, `RUN_COST_CAP_USD`) because `Settings` has no env prefix.
+- **Rollback:** set `OPENAI_BASE_URL=https://api.openai.com/v1`,
+  `SYNTHESIS_MODEL=gpt-5.5`, and put an OpenAI key back into `OPENAI_API_KEY`;
+  OpenAI pricing entries, the `max_completion_tokens` path, and Batch API
+  transport remain in code.
+
+---
+
 ### Article ingest → OpenAI Batch API on `gpt-5.5`, fired per-clip (2026-07-09)
 
 Two changes to the article path (`raw/` → `notes/`), requested by the user:
@@ -92,7 +122,7 @@ gap was the weekly digest, which lived solely in `pkm-engine-local`.
   (fake client, no OpenAI calls). No pricing change — `gpt-5.4` was already in
   `pkm/llm/pricing.py`.
 - **Book/podcast source-notes**: no code change — `pkm ingest-notes` already
-  exists in `pkm-engine` and reads `PKM_SOURCES_DIR`. Runs **manually on the
+  exists in `pkm-engine` and reads `SOURCES_DIR`. Runs **manually on the
   Mac** with OpenAI instead of on the Mac with `pkm-engine-local`/CLIProxyAPI —
   the iCloud source folder is only reachable from the Mac, and the mid-sync
   safety guard only works reading iCloud directly. See the README's
@@ -103,26 +133,11 @@ gap was the weekly digest, which lived solely in `pkm-engine-local`.
 
 ---
 
-### Switching provider to GLM-5.2 (runbook; docs only — no code change now)
+### Switching provider to GLM-5.2 (superseded by 2026-07-10 execution)
 
-GLM is OpenAI-compatible, so once the OpenAI credit above is exhausted the
-swap is near-config-only through the existing `openai.OpenAI(base_url=...)`
-seam (`pkm/llm/client.py:141`):
-
-- **Env only:** `OPENAI_BASE_URL=<GLM OpenAI-compatible endpoint>`,
-  `OPENAI_API_KEY=<GLM key>`, `PKM_SYNTHESIS_MODEL=glm-5.2`.
-- **Required code touch (1, at swap time):** add a `glm-5.2` entry to `PRICING`
-  in `pkm/llm/pricing.py`. `compute_cost` raises `KeyError` on an unknown model
-  by design (never silently records `cost_usd=0.0`), so an unlisted model id
-  crashes every run until priced.
-- **Verify at swap time (potential code touch 2):** `_generate` in
-  `pkm/llm/client.py:158` sends `max_completion_tokens`. Many OpenAI-compatible
-  layers (GLM included) expect `max_tokens` instead. If GLM rejects
-  `max_completion_tokens`, add a small provider-tolerant branch there — flag
-  this as the one thing to test first at swap time.
-- **Optional:** add a `GLM52` constant to `pkm/llm/models.py` for tidiness.
-- **No code changes to `pricing.py` / `client.py` / `models.py` are made now** —
-  this section is a runbook for when the swap actually happens.
+This was the original runbook for a future provider switch. It is now superseded
+by the 2026-07-10 execution entry above: `glm-5.2` pricing exists, the token
+parameter branch exists, `GLM52` exists, and the workflows now target Z.AI.
 
 ---
 

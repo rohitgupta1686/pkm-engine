@@ -2,8 +2,8 @@
 
 ## Project
 
-Clip an article → **one readable Markdown note**, produced by a **single OpenAI
-GPT-5.4 call per source**. $0 infrastructure, no database, no local daemon.
+Clip an article → **one readable Markdown note**, produced by a **single Z.AI
+GLM-5.2 call per source**. $0 infrastructure, no database, no local daemon.
 Ingestion runs in GitHub Actions over a git checkout of the vault; the vault is
 plain Markdown read in Obsidian (which provides backlinks/graph/search for free).
 
@@ -25,16 +25,17 @@ plain Markdown read in Obsidian (which provides backlinks/graph/search for free)
   `pkm-prototype/SYNTHESIS_PROMPT.md`). One call in `pkm/pipeline/synthesize.py`.
 - **Orchestration:** `pkm/pipeline/ingest_note.py` — reads existing note slugs (for
   `[[links]]`) + recent wildcard frames (for variety), writes `notes/<slug>.md`. No DB.
-- **Note I/O:** `pkm/store/notes.py`. **LLM transport:** `pkm/llm/client.py` (OpenAI),
-  run with `conn=None` (DB-free; `pkm/llm/base_client.py` only caches when given a conn).
+- **Note I/O:** `pkm/store/notes.py`. **LLM transport:** `pkm/llm/client.py`
+  (OpenAI-compatible SDK path, defaulting to Z.AI), run with `conn=None`
+  (DB-free; `pkm/llm/base_client.py` only caches when given a conn).
 - **CLI:** `pkm ingest` / `pkm batch-ingest` (aliases `synthesize` / `batch-synthesize`).
 - **Source-notes path:** `pkm ingest-notes` reads a live Markdown capture folder
   (books/podcasts/lectures, one `.md` per source, synced via iCloud/Obsidian; set
-  `PKM_SOURCES_DIR`) → `notes/`. Separate prompt `pkm/prompts/synthesis-notes.v1.md`
+  `SOURCES_DIR`) → `notes/`. Separate prompt `pkm/prompts/synthesis-notes.v1.md`
   (synthesizes *my notes about* a source, not the source text); delta state in
   `notes/.notes-state.json`. Reader `pkm/ingest/md_reader.py`; loop
   `pkm/pipeline/ingest_source_notes.py`. v1 = full re-synthesis on change, no OCR.
-- **Model:** `gpt-5.4` locked (`PKM_SYNTHESIS_MODEL`); pricing in `pkm/llm/pricing.py`.
+- **Model:** `glm-5.2` locked (`SYNTHESIS_MODEL`); pricing in `pkm/llm/pricing.py`.
 - **Tests:** `tests/test_synthesize.py` + `tests/test_ingest_notes.py` (both run without OpenAI via a fake client).
 
 ## Hard Constraints

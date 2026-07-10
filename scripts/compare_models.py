@@ -3,11 +3,12 @@
 
 Runs the SAME captures through each model with the SAME prompt and existing-slug
 list, then writes paired notes plus a cost/latency report so you can decide
-whether the full model's quality is worth its ~10x per-note cost over the mini.
+which model's quality/cost tradeoff is best for the note style.
 
 Generation needs real API access, so run this where OPENAI_API_KEY is set (it
-cannot run from the build sandbox). Judging can then happen anywhere — eyeball
-the paired notes in Obsidian, or have Claude Code read them and score blind.
+can use OPENAI_BASE_URL too, e.g. Z.AI or a local proxy). Judging can then happen
+anywhere — eyeball the paired notes in Obsidian, or have Claude Code read them
+and score blind.
 
 Usage:
     pip install -e .
@@ -21,7 +22,7 @@ Usage:
     python3 scripts/compare_models.py \
         --raw "$VAULT_PATH/raw/economist-com__anthropic-...md" \
         --raw "$VAULT_PATH/raw/the-ken-com__...md" \
-        --models gpt-5.4 gpt-5.4-mini-2026-03-17 \
+        --models glm-5.2 gpt-5.4 \
         --blind
 
 Outputs (under --out, default <vault>/_model_compare/):
@@ -53,7 +54,7 @@ from pkm.store.notes import list_note_slugs, slug_for_raw  # noqa: E402
 # The eval only needs the LLM client's agent_runs cache table, which the stdlib
 # sqlite3 module serves fine. This keeps the comparison runnable without libsql.
 
-DEFAULT_MODELS = ["gpt-5.4", "gpt-5.4-mini-2026-03-17"]
+DEFAULT_MODELS = ["glm-5.2", "gpt-5.4"]
 
 # Minimal agent_runs schema — the exact columns BaseLLMClient._write_run / _check_cache
 # read and write. (Mirrors migrations/sqlite/004; no other tables are touched here.)

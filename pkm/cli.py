@@ -3,7 +3,7 @@ pkm CLI entry point.
 
 Entry point: pkm.cli:app (see pyproject.toml [project.scripts]).
 
-The redesigned pipeline is a SINGLE OpenAI GPT-5.4 call per source → one readable
+The redesigned pipeline is a SINGLE GLM-5.2 call per source → one readable
 Markdown note in <vault>/notes/. No Turso, no agents, no embeddings, no database:
 ingestion is meant to run in CI (GitHub Actions) over a git checkout of the vault,
 so nothing runs on a local machine.
@@ -43,7 +43,7 @@ def _build_parser() -> argparse.ArgumentParser:
         aliases=["synthesize"],
         help="Synthesize ONE raw capture into ONE Markdown note (single LLM call).",
         description=(
-            "One OpenAI GPT-5.4 call turns a raw capture into a readable note in "
+            "One GLM-5.2 call turns a raw capture into a readable note in "
             "<vault>/notes/. No agents, no claim/concept/graph extraction, no "
             "embeddings, no database. (Alias: `synthesize`.)"
         ),
@@ -65,7 +65,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Scan raw/**/*.md in the vault and synthesize each into <vault>/notes/ "
             "via one LLM call per source. Idempotent with --new-only; aborts if the "
-            "in-memory spend would exceed PKM_RUN_COST_CAP_USD. (Alias: `batch-synthesize`.)"
+            "in-memory spend would exceed RUN_COST_CAP_USD. (Alias: `batch-synthesize`.)"
         ),
     )
     batch_parser.add_argument(
@@ -91,7 +91,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     notes_parser.add_argument(
         "--sources", metavar="PATH", default=None,
-        help="Capture folder of source notes. Defaults to PKM_SOURCES_DIR from settings.",
+        help="Capture folder of source notes. Defaults to SOURCES_DIR from settings.",
     )
     notes_parser.add_argument(
         "--vault", metavar="PATH", default=None,
@@ -103,7 +103,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "digest",
         help="Synthesize a weekly digest from notes saved in the last N days.",
         description=(
-            "One OpenAI GPT-5.4 call turns everything saved to <vault>/notes/ in "
+            "One GLM-5.2 call turns everything saved to <vault>/notes/ in "
             "the last N days into ONE cross-note briefing (themes, connections, "
             "what's worth attention), written back as a `type: digest` note. "
             "Prior digests are excluded from the input so it never folds itself "
@@ -141,15 +141,19 @@ def app() -> None:
 
 
 def _build_synthesis_client(settings):
-    """Build the DB-free OpenAI client for note synthesis (the locked provider).
+    """Build the DB-free OpenAI-compatible client for note synthesis.
 
-    The single-call path always uses OpenAI GPT-5.4 and runs without a database
+    The single-call path defaults to Z.AI GLM-5.2 and runs without a database
     (conn=None → no agent_runs cache). Idempotency is the note file's existence;
     spend is tracked in-memory via each call's returned cost_usd.
     """
     from pkm.llm.client import LLMClient
 
     return LLMClient(None, settings.openai_api_key, settings.openai_base_url)
+
+
+def _uses_glm_sync_path(settings) -> bool:
+    return settings.synthesis_model.startswith("glm-") or "api.z.ai" in settings.openai_base_url
 
 
 def _cmd_synthesize(args: argparse.Namespace) -> None:
@@ -186,13 +190,12 @@ def _cmd_synthesize(args: argparse.Namespace) -> None:
 def _cmd_batch_synthesize(args: argparse.Namespace) -> None:
     """Execute batch-ingest / batch-synthesize (all raw/*.md → notes/).
 
-    Submits every new capture as ONE OpenAI Batch job (50% discount) and blocks
-    until it completes, then writes the notes. DB-free: the vault git repo is the
-    only state; the T1-02 spend guardrail (settings.run_cost_cap_usd) is enforced
-    pre-submit (batch is all-at-once), deferring excess sources to the next run.
+    GLM/Z.AI uses synchronous chat completions. OpenAI fallback submits every new
+    capture as ONE OpenAI Batch job (50% discount) and blocks until it completes.
+    DB-free: the vault git repo is the only state; the spend guardrail
+    (settings.run_cost_cap_usd) is enforced in the path's natural place.
     """
     from pkm.config import Settings
-    from pkm.pipeline.batch_ingest import run_batch_ingest
 
     settings = Settings()
     if not settings.openai_api_key:
@@ -205,16 +208,56 @@ def _cmd_batch_synthesize(args: argparse.Namespace) -> None:
 
     client = _build_synthesis_client(settings)
 
-    summary = run_batch_ingest(
-        client,
-        vault_root=Path(vault_root),
-        model=settings.synthesis_model,
-        new_only=args.new_only,
-        notes_dirname=settings.notes_dirname,
-        cost_cap=settings.run_cost_cap_usd,
-        poll_interval=settings.batch_poll_interval_sec,
-        timeout=settings.batch_timeout_sec,
-    )
+    if _uses_glm_sync_path(settings):
+        from pkm.pipeline.ingest_note import run_note_ingest
+
+        vault = Path(vault_root)
+        raw_files = sorted((vault / "raw").glob("**/*.md"))
+        results, failed, spent, aborted = [], 0, 0.0, False
+        for raw_file in raw_files:
+            if spent >= settings.run_cost_cap_usd:
+                aborted = True
+                break
+            try:
+                r = run_note_ingest(
+                    client,
+                    vault_root=vault,
+                    raw_text=raw_file.read_text(encoding="utf-8"),
+                    raw_path=str(raw_file),
+                    model=settings.synthesis_model,
+                    notes_dirname=settings.notes_dirname,
+                    new_only=args.new_only,
+                )
+                spent += r.get("cost_usd", 0.0)
+                results.append(r)
+            except Exception as exc:  # noqa: BLE001 — isolate per-file failures
+                failed += 1
+                results.append({"raw_path": str(raw_file), "status": "error", "error": str(exc)})
+
+        summary = {
+            "total": len(raw_files),
+            "ok": sum(1 for r in results if r.get("status") == "ok"),
+            "skipped": sum(1 for r in results if r.get("status") == "skipped"),
+            "skipped_empty": sum(1 for r in results if r.get("status") == "skipped_empty"),
+            "deferred": 0,
+            "failed": failed,
+            "cost_usd": round(spent, 5),
+            "cost_capped": aborted,
+            "results": results,
+        }
+    else:
+        from pkm.pipeline.batch_ingest import run_batch_ingest
+
+        summary = run_batch_ingest(
+            client,
+            vault_root=Path(vault_root),
+            model=settings.synthesis_model,
+            new_only=args.new_only,
+            notes_dirname=settings.notes_dirname,
+            cost_cap=settings.run_cost_cap_usd,
+            poll_interval=settings.batch_poll_interval_sec,
+            timeout=settings.batch_timeout_sec,
+        )
     print(json.dumps(summary, indent=2))
     if summary["failed"] > 0:
         sys.exit(1)
@@ -238,7 +281,7 @@ def _cmd_ingest_notes(args: argparse.Namespace) -> None:
     sources_dir = args.sources or settings.sources_dir
     if not sources_dir:
         print(
-            "ERROR: source folder not set (use --sources or set PKM_SOURCES_DIR).",
+            "ERROR: source folder not set (use --sources or set SOURCES_DIR).",
             file=sys.stderr,
         )
         sys.exit(1)

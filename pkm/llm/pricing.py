@@ -1,8 +1,8 @@
-"""Per-token pricing for the OpenAI models used by the pipeline.
+"""Per-token pricing for the LLM models used by the pipeline.
 
-Ground truth from DECISIONS.md [T1-02] (locked 2026-06-19): gpt-5.4-mini
-standard sync pricing, per 1M tokens. OpenAI prompt caching is automatic for
-prompts >1024 tokens, so cached prompt tokens are billed at the cached rate.
+Prices are per 1M tokens. GLM-5.2 pricing comes from the Z.AI pricing page
+checked on 2026-07-10. OpenAI pricing entries are retained for fallback and
+model-comparison runs.
 
 compute_cost is pure and unit-tested directly. An unknown model raises KeyError
 deliberately — the pipeline must never silently record cost_usd=0.0 (that was
@@ -11,6 +11,11 @@ the client.py:220 bug this module replaces).
 
 # Per 1M tokens.
 PRICING: dict[str, dict[str, float]] = {
+    "glm-5.2": {
+        "input": 1.40,
+        "cached": 0.26,
+        "output": 4.40,
+    },
     "gpt-5.4-mini-2026-03-17": {
         "input": 0.75,   # non-cached prompt tokens
         "cached": 0.075,  # cached prompt tokens (90% off)

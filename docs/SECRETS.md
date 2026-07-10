@@ -10,8 +10,8 @@ Add these secrets to the **pkm-engine** repository:
 
 | Secret | Source | Purpose |
 |--------|--------|---------|
-| `OPENAI_API_KEY` | [OpenAI platform](https://platform.openai.com/) → API keys | GPT-5.4-mini API calls during ingest |
-| `OPENAI_BASE_URL` | (optional) OpenAI-compatible endpoint; default `https://api.openai.com/v1` | Lets the OpenAI SDK target a compat endpoint (e.g. CLIProxyAPI) for local/dev. Leave unset for real OpenAI. |
+| `OPENAI_API_KEY` | Z.AI API keys | GLM-5.2 API calls during ingest; name retained because the OpenAI-compatible SDK path reads it |
+| `OPENAI_BASE_URL` | `https://api.z.ai/api/paas/v4/` | Points the OpenAI-compatible SDK at Z.AI |
 | `TURSO_URL` | [Turso dashboard](https://turso.tech/) → database → URL (e.g., `libsql://your-db.turso.io`) | Turso libSQL connection URL |
 | `TURSO_TOKEN` | [Turso dashboard](https://turso.tech/) → database → create token | Turso auth token |
 | `VAULT_PAT` | GitHub → Settings → Developer settings → Fine-grained tokens (see below) | Cross-repo checkout + commit-back to pkm-vault |
@@ -38,10 +38,10 @@ Set the GitHub Actions spending limit to **$0** (fail-closed):
 
 This ensures that if free-tier minutes are exhausted, runs fail rather than incurring charges.
 
-Also set a **monthly usage limit on the OpenAI organization** in the [OpenAI platform](https://platform.openai.com/) → Settings → Billing → Usage limit. This prevents runaway API costs.
+Also set a **monthly usage limit in the Z.AI account**. This prevents runaway API costs.
 
 The workflow additionally enforces a **per-run cost guardrail** (DECISIONS.md [T1-02]):
-`PKM_RUN_COST_CAP_USD` (default `$0.50`) and `PKM_RUN_TOKEN_CAP` (default `200000`) cause
+`RUN_COST_CAP_USD` (default `$0.50`) and `RUN_TOKEN_CAP` (default `200000`) cause
 `batch_ingest` to abort the run once cumulative spend or tokens for that run are exceeded. This
 is belt-and-suspenders on top of the org-level usage limit.
 

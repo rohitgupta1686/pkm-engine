@@ -2,12 +2,12 @@
 
 Where the per-source engine (``pkm/pipeline/synthesize.py``) summarizes one
 article in isolation, this reads the notes saved in a window (default 7 days)
-and asks GPT-5.4 for ONE briefing: the week's throughline, the themes, the
-connections between pieces, and what's worth a real read. It's the many-to-one
-counterpart of synthesize.py — same ``BaseLLMClient.call`` seam, system prompt
-+ user context framing (no ``_TASK_BRIDGE`` — that was a Claude-OAuth-proxy
-workaround specific to the sibling local engine; OpenAI takes the digest
-prompt as a normal system message).
+and asks the configured synthesis model for ONE briefing: the week's throughline,
+the themes, the connections between pieces, and what's worth a real read. It's
+the many-to-one counterpart of synthesize.py — same ``BaseLLMClient.call`` seam,
+system prompt + user context framing (no ``_TASK_BRIDGE`` — that was a
+Claude-OAuth-proxy workaround specific to the sibling local engine; the
+OpenAI-compatible path takes the digest prompt as a normal system message).
 
 The digest is written as a normal note (``type: digest``) into <vault>/notes/,
 so it shows up on the Home dashboard like everything else (and is marked

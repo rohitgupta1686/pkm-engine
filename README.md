@@ -1,6 +1,6 @@
 # pkm-engine — AI-assisted Personal Knowledge Management
 
-Clip an article → one readable Markdown note. **One OpenAI GPT-5.4 call per source**,
+Clip an article → one readable Markdown note. **One Z.AI GLM-5.2 call per source**,
 **$0 infrastructure, no database, no local daemon.** Ingestion runs in GitHub
 Actions over a git checkout of the vault; the vault is plain Markdown you read in
 Obsidian. Your Mac is never in the path.
@@ -14,7 +14,7 @@ browser bookmarklet ──POST──▶ Cloudflare Worker (worker-clip.js)
                                   ▼
                        GitHub Actions (ingest.yml)
                                   │  pkm batch-ingest --new-only
-                                  │  one GPT-5.4 call per new raw capture
+                                  │  one GLM-5.2 call per new raw capture
                                   ▼
                        commits notes/<slug>.md back to pkm-vault
                                   ▼
@@ -31,7 +31,7 @@ Requires **Python 3.12** (3.14 lacks wheels for some deps).
 ```bash
 pip install -e .
 cp .env.example .env
-# Edit .env: OPENAI_API_KEY and VAULT_PATH (path to your pkm-vault checkout)
+# Edit .env: OPENAI_API_KEY (your Z.AI key) and VAULT_PATH
 ```
 
 ## Usage
@@ -42,9 +42,9 @@ pkm batch-ingest --new-only                  # all raw/*.md → notes/ (skips ex
 # `synthesize` / `batch-synthesize` are aliases.
 ```
 
-`PKM_SYNTHESIS_MODEL` defaults to `gpt-5.4`. `--new-only` skips captures whose note
+`SYNTHESIS_MODEL` defaults to `glm-5.2`. `--new-only` skips captures whose note
 already exists (idempotency = the note file). `batch-ingest` aborts before exceeding
-`PKM_RUN_COST_CAP_USD` (~$0.03/note, so the default $0.50 covers a sizable batch).
+`RUN_COST_CAP_USD`.
 
 ## Running tests
 
@@ -64,8 +64,10 @@ frequency (books/podcasts, not daily clips) makes a manual command fine.
 1. `pip install -e .` the `pkm-engine` package on the Mac (once).
 2. Set a Mac-local `.env` (gitignored — never committed):
    ```
-   OPENAI_API_KEY=...
-   PKM_SOURCES_DIR=~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Sources
+   OPENAI_API_KEY=...  # Z.AI API key
+   OPENAI_BASE_URL=https://api.z.ai/api/paas/v4/
+   SYNTHESIS_MODEL=glm-5.2
+   SOURCES_DIR=~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Sources
    VAULT_PATH=/path/to/your/local/pkm-vault/checkout
    ```
 3. `git pull` the vault checkout, then:
@@ -75,8 +77,7 @@ frequency (books/podcasts, not daily clips) makes a manual command fine.
 4. Commit + push `notes/` **and** the updated `notes/.notes-state.json` (the
    delta-state sidecar — without it every source re-synthesizes next run).
 
-See `DECISIONS.md` for the "Switching provider to GLM-5.2" runbook (the future
-swap once the current OpenAI credit runs out).
+See `DECISIONS.md` for the GLM-5.2 provider decision and rollback notes.
 
 ## Capture / Clipper Setup
 

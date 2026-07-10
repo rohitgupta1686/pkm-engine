@@ -16,7 +16,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pkm.config import Settings  # noqa: E402
-from pkm.llm.models import GPT55  # noqa: E402
+from pkm.llm.models import GLM52, GPT55  # noqa: E402
 from pkm.llm.pricing import compute_cost  # noqa: E402
 from pkm.pipeline.batch_ingest import prepare_requests, run_batch_ingest  # noqa: E402
 from pkm.store.notes import list_note_slugs  # noqa: E402
@@ -220,8 +220,8 @@ def test_compute_cost_gpt55_batch_is_half_of_sync():
     assert abs(batch - sync * 0.5) < 1e-9
 
 
-def test_default_synthesis_model_is_gpt55():
-    assert Settings().synthesis_model == GPT55
+def test_default_synthesis_model_is_glm52():
+    assert Settings().synthesis_model == GLM52
 
 
 def _run_all():
