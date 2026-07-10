@@ -93,7 +93,7 @@ def synthesize_note(
     """Turn one raw capture into one Markdown note via a single LLM call.
 
     Args:
-        llm_client: a BaseLLMClient (OpenAI on the production path).
+        llm_client: a BaseLLMClient (OpenAI-compatible client; Z.AI GLM-5.2 on the production path).
         raw_text:   the raw captured Markdown (front matter + body).
         existing_titles: slugs of existing notes, for cross-linking.
         source_id:  optional id recorded on the agent_runs row for provenance.

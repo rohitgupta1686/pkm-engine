@@ -59,7 +59,7 @@ def run_source_notes_ingest(
     """Synthesize/refresh notes for every changed source in ``sources_dir``.
 
     Args:
-        llm_client: a BaseLLMClient (OpenAI on the production path).
+        llm_client: a BaseLLMClient (OpenAI-compatible client; Z.AI GLM-5.2 on the production path).
         sources_dir: the iCloud capture folder (top-level ``*.md`` only in v1).
         vault_root: vault checkout; notes + the state sidecar live here.
         model:      synthesis model id (settings.synthesis_model).

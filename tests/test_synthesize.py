@@ -26,6 +26,7 @@ from pkm.store.notes import (  # noqa: E402
     sanitize_frontmatter,
     sanitize_mermaid,
     slug_for_raw,
+    strip_outer_code_fence,
     title_from_raw,
     wildcard_frame_of,
     write_note,
@@ -442,6 +443,70 @@ def test_write_note_applies_sanitize_mermaid():
         content = path.read_text()
         assert "<br>" in content
         assert "\\n" not in content
+
+
+def test_strip_outer_code_fence_bare_fence():
+    # GLM-5.2 quirk: whole note wrapped in a bare ``` fence.
+    md = "```\n---\ntitle: Foo\n---\n\n# body\n```\n"
+    out = strip_outer_code_fence(md)
+    assert out.startswith("---")
+    assert "```" not in out
+
+
+def test_strip_outer_code_fence_markdown_lang_tag():
+    # Opening fence carries a ```markdown / ```md language tag.
+    for tag in ("markdown", "md"):
+        md = f"```{tag}\n---\ntitle: Foo\n---\n\n# body\n```\n"
+        out = strip_outer_code_fence(md)
+        assert out.startswith("---")
+        assert "```" not in out
+
+
+def test_strip_outer_code_fence_noop_on_well_formed_note():
+    # A normal note starts with --- front matter → unchanged.
+    md = "---\ntitle: Foo\n---\n\n# body\n"
+    assert strip_outer_code_fence(md) == md
+
+
+def test_strip_outer_code_fence_is_idempotent():
+    md = "```\n---\ntitle: Foo\n---\n\n# body\n```\n"
+    once = strip_outer_code_fence(md)
+    twice = strip_outer_code_fence(once)
+    assert once == twice
+
+
+def test_strip_outer_code_fence_preserves_interior_mermaid_block():
+    # A note that ends with a legit mermaid block, wrapped in an outer fence:
+    # only the outer fence is removed; the mermaid block survives intact.
+    md = (
+        "```markdown\n"
+        "---\ntitle: Foo\n---\n\n"
+        "```mermaid\ngraph TD\n  A-->B\n```\n"
+        "```\n"
+    )
+    out = strip_outer_code_fence(md)
+    assert out.startswith("---")
+    assert "```mermaid" in out
+
+
+def test_write_note_unwraps_outer_code_fence():
+    # End-to-end: a fence-wrapped whole note is written with parseable frontmatter.
+    wrapped = (
+        "```\n"
+        "---\n"
+        "title: Restorers of Bollywood\n"
+        "source: Mint\n"
+        "reviewed: false\n"
+        "---\n\n# body\n"
+        "```\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        path = write_note(Path(tmp), "restorers", wrapped)
+        content = path.read_text()
+        assert content.startswith("---")
+        assert not content.rstrip().endswith("```")
+        fm = _parse_frontmatter(content)
+        assert fm["title"] == "Restorers of Bollywood"
 
 
 def _run_all():

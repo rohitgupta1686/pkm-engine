@@ -41,6 +41,33 @@ path.
 
 ---
 
+### Execution — strip GLM-5.2's stray outer code fence at write time (2026-07-10)
+
+After the GLM-5.2 switch, GLM intermittently returned the *entire* note — YAML
+front matter and all — wrapped in a triple-backtick code fence. This trapped the
+`---` delimiters inside the fence, so Obsidian rendered the note as one gray code
+block and `sanitize_frontmatter` (which needs `---` at byte 0) no-op'd, writing the
+broken note verbatim; the downstream frontmatter-review pass then skipped it. Two
+notes from the 2026-07-10 ingest were affected.
+
+- **Fix:** new `strip_outer_code_fence` sanitizer in `pkm/store/notes.py`, wired as
+  the first step in `write_note` (before `sanitize_frontmatter`). It unwraps a
+  leading bare/`markdown`/`md` fence + matching trailing fence only when both are
+  present, which is unambiguous because a well-formed note always starts with `---`.
+  Idempotent; leaves interior code/mermaid blocks intact.
+- **Scope:** this is the same write-time "absorb the model's output quirks" seam as
+  the existing frontmatter/mermaid sanitizers — a provider behavior difference, not
+  a prompt change. GPT-5.4 rarely emitted the wrapping fence; GLM-5.2 does.
+- **Repair:** the two already-written broken notes were re-run through the sanitizer
+  chain in place (pkm-vault repo), restoring parseable front matter.
+- **Tests:** `tests/test_synthesize.py` covers bare/`markdown` wrap, no-op on a
+  well-formed note, idempotency, interior-mermaid preservation, and end-to-end
+  `write_note` unwrap.
+- **Follow-up (not done):** callouts occasionally emit bare `- ` bullets missing the
+  `> ` prefix inside `[!question]` blocks — prompt-level, tracked separately.
+
+---
+
 ### Article ingest → OpenAI Batch API on `gpt-5.5`, fired per-clip (2026-07-09)
 
 Two changes to the article path (`raw/` → `notes/`), requested by the user:
