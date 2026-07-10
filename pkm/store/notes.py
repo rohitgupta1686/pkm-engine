@@ -33,6 +33,12 @@ _FIELD_LINE_RE = re.compile(
 
 _MERMAID_BLOCK_RE = re.compile(r"(```mermaid[^\n]*\n)(.*?)(```)", re.DOTALL)
 
+# A whole-note response wrapped in a stray code fence: an opening fence (bare or
+# ```markdown / ```md) on line 1 and a closing fence on the last line. GLM-5.2
+# intermittently does this — see strip_outer_code_fence.
+_OUTER_OPEN_FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*$")
+_OUTER_CLOSE_FENCE_RE = re.compile(r"^```\s*$")
+
 # A wildcard callout header is the only callout whose title leads with one of the
 # six wildcard emojis (the others — Thesis/By the numbers/Worth keeping/Open
 # threads — never do). Capture the emoji+label so we can feed it back as
@@ -100,6 +106,33 @@ def _emit_field(key: str, value: str) -> str:
         sort_keys=False,
         width=10**9,
     ).strip()
+
+
+def strip_outer_code_fence(markdown: str) -> str:
+    """Unwrap a whole note the model wrapped in a stray triple-backtick fence.
+
+    GLM-5.2 intermittently returns the entire response — YAML front matter and all —
+    inside a ```` ``` ```` (or ```` ```markdown ````) code fence. The ``---`` delimiters
+    then sit inside the fence, so Obsidian renders the note as one gray code block and
+    ``sanitize_frontmatter`` (which needs ``---`` at byte 0) no-ops, writing the broken
+    note verbatim. This removes the wrapping fence when — and only when — the first
+    non-blank line is an opening fence and the last is a closing fence.
+
+    Safe because a well-formed note always starts with ``---`` front matter, never a
+    code fence, so a leading fence is unambiguously the defect. Idempotent; no-op when
+    there's no wrapping fence.
+    """
+    stripped = markdown.strip()
+    if not stripped:
+        return markdown
+    lines = stripped.split("\n")
+    if (
+        len(lines) >= 2
+        and _OUTER_OPEN_FENCE_RE.match(lines[0])
+        and _OUTER_CLOSE_FENCE_RE.match(lines[-1])
+    ):
+        return "\n".join(lines[1:-1])
+    return markdown
 
 
 def sanitize_frontmatter(markdown: str) -> str:
@@ -212,9 +245,11 @@ def write_note(
     d = notes_dir(vault_root, notes_dirname)
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{safe_slug}.md"
-    # Guarantee parseable frontmatter regardless of what the model emitted, then
-    # fix literal \n in mermaid node labels, then normalize to a single trailing
-    # newline for byte-stable re-writes.
+    # Unwrap a stray whole-note code fence (GLM-5.2 quirk) FIRST so the front matter
+    # is exposed, then guarantee parseable frontmatter regardless of what the model
+    # emitted, then fix literal \n in mermaid node labels, then normalize to a single
+    # trailing newline for byte-stable re-writes.
+    markdown = strip_outer_code_fence(markdown)
     markdown = sanitize_frontmatter(markdown)
     markdown = sanitize_mermaid(markdown)
     path.write_text(markdown.rstrip("\n") + "\n", encoding="utf-8")

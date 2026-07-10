@@ -55,7 +55,7 @@ def run_note_ingest(
     """Synthesize one note from one raw capture.
 
     Args:
-        llm_client: a BaseLLMClient (OpenAI on the production path).
+        llm_client: a BaseLLMClient (OpenAI-compatible client; Z.AI GLM-5.2 on the production path).
         vault_root: vault checkout root; notes are written under <root>/<notes_dirname>.
         raw_text:   the raw captured Markdown.
         raw_path:   the source path (for the result/log; never modified).
