@@ -11,6 +11,47 @@ Logged autonomously during execution. These are reversible — rework < 1 day.
 
 ---
 
+### Research — evaluated OpenRouter / DeepSeek for GLM-5.2; no swap now (2026-07-14)
+
+User asked whether the GLM-5.2 synthesis call should move behind OpenRouter, and to
+check DeepSeek pricing. Researched (prices per 1M tokens, output dominates cost;
+sources fetched 2026-07-14):
+
+| Option | Input | Output | Cached | Note |
+|---|--:|--:|--:|---|
+| **GLM-5.2 direct — Z.AI (current)** | 1.40 | 4.40 | 0.26 | sync; explicit cheap cached input |
+| GLM-5.2 via OpenRouter | 0.924 | 2.904 | n/a\* | ~34% cheaper, same model; sync |
+| GLM-4.6 via OpenRouter | 0.43 | 1.74 | n/a\* | older |
+| GLM-4.7 Flash via OpenRouter | 0.00 | 0.00 | 0.00 | free tier |
+| DeepSeek v4-flash (direct) | 0.14 | 0.28 | 0.0028 | cheapest paid; 1M ctx; OpenAI-compat |
+| DeepSeek v4-pro (direct) | 0.435 | 0.87 | 0.0036 | 1M ctx |
+
+\* OpenRouter prompt-cache behavior is provider-dependent and unconfirmed for GLM-5.2,
+so the Z.AI $0.26 cached rate (which benefits the fixed ~1,900-token system prompt every
+call) may not carry over. OpenRouter also adds a 5.5% fee on credit top-ups (no per-token
+markup). Note the Batch 50% discount is already gone — Z.AI is sync-only.
+
+- **Decision: no swap now.** Total spend to date is ~$0.35, so the ~34% raw cut on the
+  same model saves pennies; not worth a vendor change on cost alone. Staying on Z.AI
+  GLM-5.2 is simplest and already working.
+- **OpenRouter is the documented on-ramp when optionality/privacy is wanted.** Its real
+  value is turning model choice into a one-line `SYNTHESIS_MODEL` change (trial DeepSeek
+  v4-flash — ~15–30× cheaper — or free GLM-4.7 Flash) with one key and no new provider
+  accounts, plus the ability to restrict to providers that don't log/train (a plus for a
+  personal vault currently sent straight to a Chinese provider). The bigger cost lever is
+  the model (DeepSeek v4-flash), not the gateway.
+- **When executed, it's an env-only flip:** `OPENAI_BASE_URL=https://openrouter.ai/api/v1`,
+  new `OPENAI_API_KEY`, `SYNTHESIS_MODEL=z-ai/glm-5.2` (or `deepseek/deepseek-chat`), plus a
+  `PRICING` entry for the new model id (`compute_cost` raises `KeyError` by design otherwise).
+  Verify first: strict `json_schema` structured-output support on the chosen route,
+  `max_tokens` vs `max_completion_tokens` acceptance (`pkm/llm/client.py` already branches
+  on the Z.AI base URL), and whether prompt caching applies.
+- **Sources:** openrouter.ai/z-ai/glm-5.2, openrouter.ai/z-ai/glm-4.6/pricing,
+  api-docs.deepseek.com/quick_start/pricing, bigmodel.cn/pricing, and OpenRouter's 5.5%
+  top-up fee (ofox.ai breakdown, 2026).
+
+---
+
 ### Execution — primary synthesis provider switched to Z.AI GLM-5.2 (2026-07-10)
 
 The planned OpenAI → GLM-5.2 swap is executed. Z.AI's GLM-5.2 docs confirm the
