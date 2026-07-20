@@ -140,3 +140,26 @@ def test_ocr_ingest_never_mutates_source_and_reacts_to_image_change():
         assert third["synthesized"] == 1
         assert third["results"][0]["change"] == "changed"
         assert len(ocr.calls) == 2
+
+
+def test_force_ocr_establishes_baseline_for_one_legacy_source():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        sources, vault = root / "sources", root / "vault"
+        sources.mkdir()
+        capture = sources / "book.md"
+        capture.write_text("---\ntitle: Book\n---\n![[page 1.jpg]]\n")
+        old = time.time() - 3600
+        os.utime(capture, (old, old))
+        _image(sources)
+        synthesis, ocr = FakeSynthesisClient(), FakeOCRClient()
+        # First ingest establishes legacy state without OCR.
+        run_source_notes_ingest(synthesis, sources, vault, "glm-5.2")
+        # The targeted force option establishes the OCR/image-hash baseline.
+        result = run_source_notes_ingest(
+            synthesis, sources, vault, "glm-5.2", ocr_client=ocr,
+            ocr_model="gemini-3-flash-preview", ocr_enabled=True,
+            source_paths=[capture], force_ocr=True,
+        )
+        assert result["synthesized"] == 1
+        assert result["ocr"]["images_transcribed"] == 1

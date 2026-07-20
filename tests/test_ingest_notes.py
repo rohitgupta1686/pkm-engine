@@ -259,6 +259,20 @@ def test_bare_body_below_article_guard_still_synthesizes():
         assert summary["synthesized"] == 1
 
 
+def test_source_paths_limits_ingest_to_one_capture():
+    client = FakeLLMClient()
+    with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as vlt:
+        source_dir = Path(src)
+        wanted = _write(source_dir, "wanted.md", "---\ntitle: Wanted\n---\nbody\n")
+        _write(source_dir, "other.md", "---\ntitle: Other\n---\nbody\n")
+        summary = run_source_notes_ingest(
+            client, source_dir, Path(vlt), "gpt-5.4", source_paths=[wanted],
+        )
+        assert summary["total"] == 1
+        assert summary["synthesized"] == 1
+        assert len(client.calls) == 1
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

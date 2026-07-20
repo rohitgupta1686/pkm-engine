@@ -59,6 +59,8 @@ def run_source_notes_ingest(
     ocr_client=None,
     ocr_model: str | None = None,
     ocr_enabled: bool = False,
+    source_paths: list[Path] | None = None,
+    force_ocr: bool = False,
 ) -> dict:
     """Synthesize/refresh notes for every changed source in ``sources_dir``.
 
@@ -87,7 +89,8 @@ def run_source_notes_ingest(
     aborted = False
     changed_any = False
 
-    for md_path in sorted(sources_dir.glob("*.md")):
+    capture_files = sorted(source_paths) if source_paths is not None else sorted(sources_dir.glob("*.md"))
+    for md_path in capture_files:
         # iCloud safety: skip a file that's still settling from another device.
         try:
             mtime = md_path.stat().st_mtime
@@ -113,6 +116,10 @@ def run_source_notes_ingest(
         if ocr_enabled and prior and prior.get("content_sha") == capture.content_sha:
             image_shas = image_hashes(capture.path, capture.body)
         verdict = classify(state, capture, image_shas=image_shas)
+        # A targeted manual OCR run may establish the image-hash baseline for a
+        # legacy source without turning on a corpus-wide re-synthesis.
+        if force_ocr and ocr_enabled and images and prior and "img_shas" not in prior:
+            verdict = "changed"
         if verdict == "unchanged":
             results.append(
                 {"source_path": md_path.name, "slug": capture.slug, "status": "unchanged"}
@@ -184,7 +191,7 @@ def run_source_notes_ingest(
         save_state(state_path, state)
 
     return {
-        "total": sum(1 for _ in sources_dir.glob("*.md")),
+        "total": len(capture_files),
         "synthesized": sum(1 for r in results if r.get("status") == "ok"),
         "unchanged": sum(1 for r in results if r.get("status") == "unchanged"),
         "skipped_fresh": sum(1 for r in results if r.get("status") == "skipped_fresh"),
