@@ -79,3 +79,10 @@ def test_gemini_uses_max_tokens_param(monkeypatch):
 
 def test_glm52_pricing():
     assert compute_cost("glm-5.2", 1_000_000, 100_000, 500_000) == 3.486
+
+
+def test_client_strips_accidental_api_key_whitespace(monkeypatch):
+    _FakeOpenAI.instances.clear()
+    monkeypatch.setattr("pkm.llm.client.openai.OpenAI", _FakeOpenAI)
+    LLMClient(None, " key-with-newline\n ", "https://api.z.ai/api/paas/v4/")
+    assert _FakeOpenAI.instances[0].api_key == "key-with-newline"

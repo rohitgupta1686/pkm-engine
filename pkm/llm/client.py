@@ -143,7 +143,10 @@ class LLMClient(BaseLLMClient):
     def __init__(self, conn, api_key: str, base_url: str = "https://api.z.ai/api/paas/v4/") -> None:
         super().__init__(conn)
         self.base_url = base_url.rstrip("/")
-        self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        # Keys pasted into .env files sometimes acquire a trailing newline. HTTP
+        # rejects that header value before it reaches the provider; whitespace is
+        # never meaningful in an API key, so normalize it at the transport seam.
+        self.client = openai.OpenAI(api_key=api_key.strip(), base_url=base_url)
 
     def _cost(self, model: str, tokens_in: int, cached_tokens: int, tokens_out: int) -> float:
         return compute_cost(model, tokens_in, cached_tokens, tokens_out)
