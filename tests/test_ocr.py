@@ -75,7 +75,7 @@ def test_enrich_body_preserves_embed_and_uses_cache():
         _image(root)
         client = FakeOCRClient()
         cache = root / ".ocr-cache" / "note.json"
-        enriched, stats = enrich_body(capture.read_text(), capture, client, "gemini-2.5-flash", cache)
+        enriched, stats = enrich_body(capture.read_text(), capture, client, "gemini-3-flash-preview", cache)
         assert "![[page 1.jpg]]" in enriched
         assert "<!-- ocr:page 1.jpg -->" in enriched
         assert "> (transcribed) Visible page text." in enriched
@@ -83,7 +83,7 @@ def test_enrich_body_preserves_embed_and_uses_cache():
         assert len(client.calls) == 1
         assert client.calls[0]["max_tokens"] == 4096
 
-        enriched_again, cached = enrich_body(capture.read_text(), capture, client, "gemini-2.5-flash", cache)
+        enriched_again, cached = enrich_body(capture.read_text(), capture, client, "gemini-3-flash-preview", cache)
         assert enriched_again == enriched
         assert cached["cached"] == 1
         assert len(client.calls) == 1
@@ -96,7 +96,7 @@ def test_enrich_body_does_not_double_insert_existing_block():
         original = "![[page 1.jpg]]\n<!-- ocr:page 1.jpg -->\n> (transcribed) done\n<!-- /ocr -->\n"
         capture.write_text(original)
         _image(root)
-        enriched, stats = enrich_body(original, capture, FakeOCRClient(), "gemini-2.5-flash", root / "cache.json")
+        enriched, stats = enrich_body(original, capture, FakeOCRClient(), "gemini-3-flash-preview", root / "cache.json")
         assert enriched == original
         assert stats["images_transcribed"] == 0
 
@@ -116,8 +116,8 @@ def test_ocr_ingest_never_mutates_source_and_reacts_to_image_change():
         synthesis, ocr = FakeSynthesisClient(), FakeOCRClient()
 
         first = run_source_notes_ingest(
-            synthesis, sources, vault, "gemini-2.5-flash", ocr_client=ocr,
-            ocr_model="gemini-2.5-flash", ocr_enabled=True,
+            synthesis, sources, vault, "gemini-3-flash-preview", ocr_client=ocr,
+            ocr_model="gemini-3-flash-preview", ocr_enabled=True,
         )
         assert first["synthesized"] == 1
         assert first["ocr"]["images_transcribed"] == 1
@@ -126,16 +126,16 @@ def test_ocr_ingest_never_mutates_source_and_reacts_to_image_change():
         # The same image is a no-op; an unrelated file is not considered.
         _image(sources, "unrelated.jpg", color="blue")
         second = run_source_notes_ingest(
-            synthesis, sources, vault, "gemini-2.5-flash", ocr_client=ocr,
-            ocr_model="gemini-2.5-flash", ocr_enabled=True,
+            synthesis, sources, vault, "gemini-3-flash-preview", ocr_client=ocr,
+            ocr_model="gemini-3-flash-preview", ocr_enabled=True,
         )
         assert second["unchanged"] == 1
         assert len(ocr.calls) == 1
 
         _image(sources, "page 1.jpg", color="black")
         third = run_source_notes_ingest(
-            synthesis, sources, vault, "gemini-2.5-flash", ocr_client=ocr,
-            ocr_model="gemini-2.5-flash", ocr_enabled=True,
+            synthesis, sources, vault, "gemini-3-flash-preview", ocr_client=ocr,
+            ocr_model="gemini-3-flash-preview", ocr_enabled=True,
         )
         assert third["synthesized"] == 1
         assert third["results"][0]["change"] == "changed"

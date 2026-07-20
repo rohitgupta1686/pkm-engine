@@ -134,7 +134,7 @@ def run_source_notes_ingest(
                 continue
             cache_path = vault_root / notes_dirname / ".ocr-cache" / f"{capture.slug}.json"
             body, ocr_stats = enrich_body(
-                body, capture.path, ocr_client, ocr_model or "gemini-2.5-flash", cache_path,
+                body, capture.path, ocr_client, ocr_model or "gemini-3-flash-preview", cache_path,
                 remaining_cost_usd=max(cost_cap_usd - spent, 0.0),
             )
             spent += ocr_stats["cost_usd"]
