@@ -258,6 +258,7 @@ class BaseLLMClient:
         input_text: str,
         source_id: str | None = None,
         output_schema: type[BaseModel] | None = None,
+        max_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
     ) -> dict:
         """Return a cache hit or a fresh result; always writes an agent_runs row.
 
@@ -281,9 +282,7 @@ class BaseLLMClient:
 
         started_at = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
         try:
-            gen = self._generate(
-                model, messages, output_schema, DEFAULT_MAX_COMPLETION_TOKENS
-            )
+            gen = self._generate(model, messages, output_schema, max_tokens)
             result = self._extract_and_validate(gen, model, messages, output_schema)
             cost_usd = self._cost(
                 gen.model, gen.tokens_in, gen.cached_tokens, gen.tokens_out

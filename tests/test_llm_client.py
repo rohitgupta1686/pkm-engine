@@ -64,5 +64,17 @@ def test_openai_fallback_uses_max_completion_tokens(monkeypatch):
     assert "max_tokens" not in kwargs
 
 
+def test_gemini_uses_max_tokens_param(monkeypatch):
+    _FakeOpenAI.instances.clear()
+    monkeypatch.setattr("pkm.llm.client.openai.OpenAI", _FakeOpenAI)
+
+    client = LLMClient(None, "test-key", "https://generativelanguage.googleapis.com/v1beta/openai/")
+    client._generate("gemini-2.5-flash", [{"role": "user", "content": "hi"}], None, 321)
+
+    kwargs = _FakeOpenAI.instances[0].completions.calls[0]
+    assert kwargs["max_tokens"] == 321
+    assert "max_completion_tokens" not in kwargs
+
+
 def test_glm52_pricing():
     assert compute_cost("glm-5.2", 1_000_000, 100_000, 500_000) == 3.486

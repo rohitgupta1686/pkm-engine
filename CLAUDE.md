@@ -34,7 +34,9 @@ plain Markdown read in Obsidian (which provides backlinks/graph/search for free)
   `SOURCES_DIR`) → `notes/`. Separate prompt `pkm/prompts/synthesis-notes.v1.md`
   (synthesizes *my notes about* a source, not the source text); delta state in
   `notes/.notes-state.json`. Reader `pkm/ingest/md_reader.py`; loop
-  `pkm/pipeline/ingest_source_notes.py`. v1 = full re-synthesis on change, no OCR.
+  `pkm/pipeline/ingest_source_notes.py`. v1 = full re-synthesis on change; optional
+  local-only `pkm ingest-notes --ocr` transcribes referenced images with Gemini
+  before synthesis, caching results in `notes/.ocr-cache/`.
 - **Model:** `glm-5.2` locked (`SYNTHESIS_MODEL`); pricing in `pkm/llm/pricing.py`.
 - **Tests:** `tests/test_synthesize.py` + `tests/test_ingest_notes.py` (both run without OpenAI via a fake client).
 

@@ -6,7 +6,6 @@ import hashlib
 import io
 import json
 import logging
-import mimetypes
 import os
 import re
 from pathlib import Path
@@ -134,7 +133,7 @@ def enrich_body(
                 result = ocr_client.call(
                     agent_name="ocr", model=model, prompt_version="ocr-v1",
                     messages=[{"role": "system", "content": prompt}, {"role": "user", "content": [{"type": "text", "text": "Transcribe this image."}, {"type": "image_url", "image_url": {"url": data_uri}}]}],
-                    input_text=digest,
+                    input_text=digest, max_tokens=OCR_MAX_TOKENS,
                 )
                 text = str(result["result"]).strip()
                 stats["tokens_in"] += result.get("tokens_in", 0)

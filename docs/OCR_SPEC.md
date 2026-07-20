@@ -1,6 +1,6 @@
 # SPEC — `--ocr` for source-notes ingest (v1)
 
-**Status:** REVISED post-Fable adversarial pass (2026-07-20) — BLOCKERs resolved in text below; awaiting final approval
+**Status:** Implemented locally (2026-07-20); awaiting live Gemini smoke test and visual review
 **Classification:** Type-1 (new capability + new vendor: Google Gemini)
 **Date:** 2026-07-20
 **Touches:** source-notes path only (`pkm ingest-notes`). The article/clip path is out of scope for v1.
@@ -252,3 +252,20 @@ stays local-only, never migrates into a workflow trigger.
 5. `DECISIONS.md` entry; update `CLAUDE.md` (drop `--ocr` from "deferred"); update memory note.
 6. Wire `--ocr` into the local autosync/Makefile only after a clean manual run —
    **local-only, never into a GitHub Actions workflow** (Mnr3).
+
+## 12. Golden acceptance rules (before any rollout commit)
+
+1. The source-note file is byte- and mtime-identical after OCR; enrichment is
+   in memory only.
+2. Every original image embed remains in the synthesized input; OCR appends a
+   marked transcription block and never replaces the image.
+3. Re-running unchanged images produces no Gemini calls and identical enriched
+   Markdown. A changed referenced image reprocesses its source; an unrelated
+   image does not.
+4. Missing, fresh, corrupt, oversized, and traversal-path images fail closed:
+   no upload or cache entry, and synthesis remains usable.
+5. Running without `--ocr` preserves the former source-notes behavior exactly.
+6. OCR is local-only, honors the shared cost cap, and the Gemini key never enters
+   a workflow, repository, or command output.
+7. Manually compare a photographed-page transcript against its source image
+   before enabling OCR in autosync; it must be transcription, not interpretation.
