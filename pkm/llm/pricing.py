@@ -23,6 +23,12 @@ PRICING: dict[str, dict[str, float]] = {
         "cached": 0.03,
         "output": 2.50,
     },
+    # Gemini 3 Flash Preview standard paid-tier pricing, checked 2026-07-20.
+    "gemini-3-flash-preview": {
+        "input": 0.50,
+        "cached": 0.05,
+        "output": 3.00,
+    },
     "gpt-5.4-mini-2026-03-17": {
         "input": 0.75,   # non-cached prompt tokens
         "cached": 0.075,  # cached prompt tokens (90% off)

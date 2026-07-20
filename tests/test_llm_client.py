@@ -69,11 +69,12 @@ def test_gemini_uses_max_tokens_param(monkeypatch):
     monkeypatch.setattr("pkm.llm.client.openai.OpenAI", _FakeOpenAI)
 
     client = LLMClient(None, "test-key", "https://generativelanguage.googleapis.com/v1beta/openai/")
-    client._generate("gemini-2.5-flash", [{"role": "user", "content": "hi"}], None, 321)
+    client._generate("gemini-3-flash-preview", [{"role": "user", "content": "hi"}], None, 321)
 
     kwargs = _FakeOpenAI.instances[0].completions.calls[0]
     assert kwargs["max_tokens"] == 321
     assert "max_completion_tokens" not in kwargs
+    assert kwargs["reasoning_effort"] == "minimal"
 
 
 def test_glm52_pricing():

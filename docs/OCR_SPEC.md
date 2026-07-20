@@ -20,7 +20,7 @@ reusing the existing `LLMClient`. Free-tier, $0.
 ## 2. Why Gemini / this shape
 
 - GLM-5.2 is text-only; synthesis stays on it. OCR is a **separate pre-pass**.
-- Gemini `gemini-2.5-flash` is vision-capable, free-tier eligible (10K RPD), and
+- Gemini `gemini-3-flash-preview` is vision-capable, free-tier eligible (10K RPD), and
   speaks the OpenAI Chat Completions shape via
   `https://generativelanguage.googleapis.com/v1beta/openai/` — so `pkm/llm/client.py`
   works unchanged (base_url + key + model swap).
@@ -47,7 +47,7 @@ reusing the existing `LLMClient`. Free-tier, $0.
 ```
 gemini_api_key: str = ""                     # env GEMINI_API_KEY
 gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
-ocr_model: str = "gemini-2.5-flash"          # env OCR_MODEL
+ocr_model: str = "gemini-3-flash-preview"    # env OCR_MODEL
 ocr_enabled: bool = False                    # master switch; --ocr flag overrides per-run
 ```
 
@@ -106,7 +106,7 @@ Versioned like the others (`ocr-v1`) for cache-key identity.
 ## 6. Cost / $0 analysis
 - Volume: a handful of books × ~7 images, re-OCR'd only when an image changes.
   `Influence` = 7 images × ~1–2K tokens ≈ ~10K input tokens, once. Trivial.
-- Free tier (10K RPD `gemini-2.5-flash`) covers this with vast headroom → **$0**.
+- Free tier (10K RPD `gemini-3-flash-preview`) covers this with vast headroom → **$0**.
 - **`compute_cost` handling:** add a `"gemini-2.5-flash"` PRICING entry at the
   *published paid rate* (so cost math is honest if the free tier is ever exceeded),
   but the OCR path runs `conn=None` and we surface tokens, not dollars, in the
@@ -156,7 +156,7 @@ sidecar (`notes/.notes-state.json`), NOT iCloud:
 2. **Splice format** → **keep embed + add transcription block.** Obsidian still renders the photo; non-destructive to the capture.
 3. **Change detection** → **fold image hashes into `classify()` NOW.** A changed image (even same filename) re-triggers synthesis. Closes the §3/§7 gap in v1 rather than deferring.
 4. **Scope** → **source-notes path only.** Article/clip path stays text-only.
-5. **Model** → **`gemini-2.5-flash`.** Reliability sweet spot for photographed pages; 10K RPD free.
+5. **Model** → **`gemini-3-flash-preview`.** Gemini 2.5 Flash is unavailable to new users; this is the currently available multimodal Flash successor with 10K RPD free.
 
 ### Impact of decision 3 on `classify()`
 `classify()` currently compares `content_sha` (body text). Extend the comparison to a
@@ -229,9 +229,9 @@ table (AI Studio per-project quota).
 latency. (b) Check this account's live quota in AI Studio before treating $0/headroom as
 fact; §6 headroom claims are provisional until then.
 
-**Mnr1 — disable thinking.** `gemini-2.5-flash` may run an internal reasoning pass;
-verbatim transcription doesn't need it. Set `reasoning_effort`/`extra_body.thinking_config`
-to minimal to avoid wasted tokens.
+**Mnr1 — minimize thinking.** Gemini 3 Flash cannot fully disable thinking; verbatim
+transcription uses OpenAI-compat `reasoning_effort: "minimal"`, which maps to Gemini's
+minimal thinking level and avoids the default high-reasoning budget.
 
 **Mnr2 — prove the source file is never mutated.** Add a test asserting the source
 `.md` bytes + mtime are unchanged after an `--ocr` run (enriched body is in-memory only).

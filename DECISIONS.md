@@ -14,7 +14,7 @@ Logged autonomously during execution. These are reversible — rework < 1 day.
 ### Execution — local Gemini OCR for image source notes (2026-07-20)
 
 Implemented the approved `pkm ingest-notes --ocr` pre-pass. It is opt-in and
-Mac-local: a separate `GEMINI_API_KEY` calls Gemini 2.5 Flash only for image
+Mac-local: a separate `GEMINI_API_KEY` calls Gemini 3 Flash Preview only for image
 embeds referenced by the current source note. The original embed stays intact;
 a marked transcription block is supplied in-memory to GLM synthesis. OCR cache
 files live in committed vault state at `notes/.ocr-cache/<slug>.json`, keyed by

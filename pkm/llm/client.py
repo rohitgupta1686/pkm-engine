@@ -167,6 +167,11 @@ class LLMClient(BaseLLMClient):
         }
         token_param = "max_tokens" if self._uses_legacy_max_tokens(model) else "max_completion_tokens"
         kwargs[token_param] = max_tokens
+        # Gemini 3 defaults to high internal reasoning. OCR is straightforward
+        # transcription, so use its OpenAI-compat mapping to Gemini's minimal
+        # thinking level; this preserves output tokens and lowers latency/cost.
+        if model.startswith("gemini-3-") and "generativelanguage.googleapis.com" in self.base_url:
+            kwargs["reasoning_effort"] = "minimal"
         if output_schema is not None:
             kwargs["response_format"] = {
                 "type": "json_schema",
