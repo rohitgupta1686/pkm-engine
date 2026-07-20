@@ -336,5 +336,9 @@ class LLMClient(BaseLLMClient):
         return [json.loads(ln) for ln in text.splitlines() if ln.strip()]
 
     def _uses_legacy_max_tokens(self, model: str) -> bool:
-        """Z.AI's OpenAI-compatible Chat Completions API expects max_tokens."""
-        return model.startswith("glm-") or "api.z.ai" in self.base_url
+        """Compatibility hosts that expect ``max_tokens``, not OpenAI's newer name."""
+        return (
+            model.startswith("glm-")
+            or "api.z.ai" in self.base_url
+            or "generativelanguage.googleapis.com" in self.base_url
+        )
