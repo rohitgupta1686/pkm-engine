@@ -94,6 +94,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Capture folder of source notes. Defaults to SOURCES_DIR from settings.",
     )
     notes_parser.add_argument(
+        "--source", metavar="PATH", default=None,
+        help="Process only this one source-note Markdown file (instead of the folder).",
+    )
+    notes_parser.add_argument(
         "--vault", metavar="PATH", default=None,
         help="Path to the vault root directory. Defaults to VAULT_PATH from settings.",
     )
@@ -292,14 +296,21 @@ def _cmd_ingest_notes(args: argparse.Namespace) -> None:
         print("ERROR: GEMINI_API_KEY is not set; --ocr requires a local Gemini key.", file=sys.stderr)
         sys.exit(1)
 
+    source_file = Path(args.source) if args.source else None
     sources_dir = args.sources or settings.sources_dir
-    if not sources_dir:
+    if source_file is not None:
+        if not source_file.is_file() or source_file.suffix.lower() != ".md":
+            print(f"ERROR: source file not found or not Markdown: {args.source}", file=sys.stderr)
+            sys.exit(1)
+        sources_path = source_file.parent
+    elif not sources_dir:
         print(
             "ERROR: source folder not set (use --sources or set SOURCES_DIR).",
             file=sys.stderr,
         )
         sys.exit(1)
-    sources_path = Path(sources_dir)
+    else:
+        sources_path = Path(sources_dir)
     if not sources_path.is_dir():
         print(f"ERROR: source folder not found: {sources_dir}", file=sys.stderr)
         sys.exit(1)
@@ -321,6 +332,8 @@ def _cmd_ingest_notes(args: argparse.Namespace) -> None:
         ocr_client=ocr_client,
         ocr_model=settings.ocr_model,
         ocr_enabled=ocr_enabled,
+        source_paths=[source_file] if source_file is not None else None,
+        force_ocr=bool(source_file is not None and ocr_enabled),
     )
     print(json.dumps(summary, indent=2))
     if summary["failed"] > 0:
