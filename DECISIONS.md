@@ -11,6 +11,20 @@ Logged autonomously during execution. These are reversible — rework < 1 day.
 
 ---
 
+### Execution — local Gemini OCR for image source notes (2026-07-20)
+
+Implemented the approved `pkm ingest-notes --ocr` pre-pass. It is opt-in and
+Mac-local: a separate `GEMINI_API_KEY` calls Gemini 2.5 Flash only for image
+embeds referenced by the current source note. The original embed stays intact;
+a marked transcription block is supplied in-memory to GLM synthesis. OCR cache
+files live in committed vault state at `notes/.ocr-cache/<slug>.json`, keyed by
+image SHA, so unchanged images make zero calls. Referenced image changes trigger
+re-synthesis; missing/fresh/corrupt/oversized/unsafe-path images fail closed.
+
+Pillow validates and downscales images to a 1536px maximum edge before upload.
+OCR uses `max_tokens` (4,096) at Gemini's compatibility endpoint and participates
+in the normal run cost cap. It remains intentionally absent from GitHub Actions.
+
 ### Research — evaluated OpenRouter / DeepSeek for GLM-5.2; no swap now (2026-07-14)
 
 User asked whether the GLM-5.2 synthesis call should move behind OpenRouter, and to
