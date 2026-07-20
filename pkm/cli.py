@@ -97,6 +97,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--vault", metavar="PATH", default=None,
         help="Path to the vault root directory. Defaults to VAULT_PATH from settings.",
     )
+    notes_parser.add_argument(
+        "--ocr", action="store_true", default=False,
+        help="Locally transcribe referenced image embeds with Gemini before synthesis.",
+    )
 
     # -- digest: notes/ (last N days) → one weekly briefing note --------------
     digest_parser = subparsers.add_parser(
@@ -150,6 +154,12 @@ def _build_synthesis_client(settings):
     from pkm.llm.client import LLMClient
 
     return LLMClient(None, settings.openai_api_key, settings.openai_base_url)
+
+
+def _build_ocr_client(settings):
+    """Build the separate, local-only Gemini client used by --ocr."""
+    from pkm.llm.client import LLMClient
+    return LLMClient(None, settings.gemini_api_key, settings.gemini_base_url)
 
 
 def _uses_glm_sync_path(settings) -> bool:
@@ -277,6 +287,10 @@ def _cmd_ingest_notes(args: argparse.Namespace) -> None:
     if not settings.openai_api_key:
         print("ERROR: OPENAI_API_KEY is not set.", file=sys.stderr)
         sys.exit(1)
+    ocr_enabled = args.ocr or settings.ocr_enabled
+    if ocr_enabled and not settings.gemini_api_key:
+        print("ERROR: GEMINI_API_KEY is not set; --ocr requires a local Gemini key.", file=sys.stderr)
+        sys.exit(1)
 
     sources_dir = args.sources or settings.sources_dir
     if not sources_dir:
@@ -296,6 +310,7 @@ def _cmd_ingest_notes(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     client = _build_synthesis_client(settings)
+    ocr_client = _build_ocr_client(settings) if ocr_enabled else None
     summary = run_source_notes_ingest(
         client,
         sources_dir=sources_path,
@@ -303,6 +318,9 @@ def _cmd_ingest_notes(args: argparse.Namespace) -> None:
         model=settings.synthesis_model,
         notes_dirname=settings.notes_dirname,
         cost_cap_usd=settings.run_cost_cap_usd,
+        ocr_client=ocr_client,
+        ocr_model=settings.ocr_model,
+        ocr_enabled=ocr_enabled,
     )
     print(json.dumps(summary, indent=2))
     if summary["failed"] > 0:

@@ -24,6 +24,7 @@ or filename cannot escape the notes directory — same guarantee as the article 
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,7 +60,7 @@ class Capture:
     content_sha: str
     para_count: int
 
-    def raw_for_synthesis(self) -> str:
+    def raw_for_synthesis(self, body_override: str | None = None) -> str:
         """Reconstruct the front-matter + body the synthesis prompt expects.
 
         The notes prompt reads ``title``/``type``/``captured`` from the input front
@@ -72,7 +73,7 @@ class Capture:
             # Bare line: keep the timestamp verbatim (a YAML emitter would quote it).
             lines.append(f"captured: {self.captured}")
         lines.append("---")
-        return "\n".join(lines) + "\n" + self.body
+        return "\n".join(lines) + "\n" + (self.body if body_override is None else body_override)
 
 
 def _emit(key: str, value: str) -> str:
@@ -137,7 +138,7 @@ def parse_capture(path: Path) -> Capture:
     )
 
 
-def classify(state: dict, capture: Capture) -> str:
+def classify(state: dict, capture: Capture, *, image_shas: dict[str, str] | None = None) -> str:
     """Return "new", "unchanged", or "changed" for a capture vs. prior state.
 
     Keyed by slug (v1). A renamed file gets a new slug → classified "new" and the
@@ -147,7 +148,13 @@ def classify(state: dict, capture: Capture) -> str:
     prior = state.get(capture.slug)
     if prior is None:
         return "new"
-    return "unchanged" if prior.get("content_sha") == capture.content_sha else "changed"
+    if prior.get("content_sha") != capture.content_sha:
+        return "changed"
+    # OCR is opt-in. A state entry from before OCR lacks img_shas and is treated
+    # as a match so enabling OCR never re-synthesizes an entire existing corpus.
+    if image_shas is not None and "img_shas" in prior and prior["img_shas"] != image_shas:
+        return "changed"
+    return "unchanged"
 
 
 def load_state(state_path: Path) -> dict:
@@ -164,13 +171,15 @@ def load_state(state_path: Path) -> dict:
 def save_state(state_path: Path, state: dict) -> None:
     """Write the state sidecar (pretty, stable key order) for a clean git diff."""
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
+    tmp_path = state_path.with_suffix(state_path.suffix + ".tmp")
+    tmp_path.write_text(
         json.dumps(state, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+    tmp_path.replace(state_path)
 
 
-def record(state: dict, capture: Capture) -> None:
+def record(state: dict, capture: Capture, *, image_shas: dict[str, str] | None = None) -> None:
     """Update ``state`` in place after a successful synthesis of ``capture``."""
     entry = state.get(capture.slug, {})
     state[capture.slug] = {
@@ -180,3 +189,5 @@ def record(state: dict, capture: Capture) -> None:
         "source_type": capture.source_type,
         "first_seen": entry.get("first_seen", capture.captured),
     }
+    if image_shas is not None:
+        state[capture.slug]["img_shas"] = image_shas

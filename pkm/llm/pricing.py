@@ -16,6 +16,13 @@ PRICING: dict[str, dict[str, float]] = {
         "cached": 0.26,
         "output": 4.40,
     },
+    # Gemini 2.5 Flash paid-list pricing, per 1M tokens. OCR normally remains
+    # within the account's free tier, but costs must still fail loud if it does not.
+    "gemini-2.5-flash": {
+        "input": 0.30,
+        "cached": 0.03,
+        "output": 2.50,
+    },
     "gpt-5.4-mini-2026-03-17": {
         "input": 0.75,   # non-cached prompt tokens
         "cached": 0.075,  # cached prompt tokens (90% off)

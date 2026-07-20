@@ -13,6 +13,7 @@ dependencies = [
     "openai>=1.40",
     "python-dotenv",
     "pyyaml>=6.0",
+    "pillow>=10.0",
 ]
 
 [project.optional-dependencies]

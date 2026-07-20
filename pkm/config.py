@@ -37,5 +37,12 @@ class Settings(BaseSettings):
     # Read by `pkm ingest-notes`. Override SOURCES_DIR.
     sources_dir: str = ""
 
+    # Opt-in, Mac-local OCR pre-pass for image embeds in source notes. This key is
+    # intentionally never used by a GitHub Actions workflow.
+    gemini_api_key: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    ocr_model: str = "gemini-2.5-flash"
+    ocr_enabled: bool = False
+
 
 settings = Settings()
