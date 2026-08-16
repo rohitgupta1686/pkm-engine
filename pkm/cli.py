@@ -127,6 +127,25 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to the vault root directory. Defaults to VAULT_PATH from settings.",
     )
 
+    # -- lint: markdown-native vault checks ------------------------------------
+    lint_parser = subparsers.add_parser(
+        "lint",
+        help="Check the vault for broken [[wikilinks]] and report the review backlog.",
+        description=(
+            "Markdown-native lint (no database): verifies every [[wikilink]] in "
+            "notes/ and advice/ resolves to an existing page, and counts notes "
+            "awaiting review. Warns by default; --strict exits 1 on broken links."
+        ),
+    )
+    lint_parser.add_argument(
+        "--vault", metavar="PATH", default=None,
+        help="Path to the vault root directory. Defaults to VAULT_PATH from settings.",
+    )
+    lint_parser.add_argument(
+        "--strict", action="store_true", default=False,
+        help="Exit 1 if any broken wikilinks are found (default: report only).",
+    )
+
     return parser
 
 
@@ -143,6 +162,8 @@ def app() -> None:
         _cmd_ingest_notes(args)
     elif args.subcommand == "digest":
         _cmd_digest(args)
+    elif args.subcommand == "lint":
+        _cmd_lint(args)
     else:
         parser.print_help()
         sys.exit(0 if args.subcommand is None else 1)
@@ -337,6 +358,25 @@ def _cmd_ingest_notes(args: argparse.Namespace) -> None:
     )
     print(json.dumps(summary, indent=2))
     if summary["failed"] > 0:
+        sys.exit(1)
+
+
+def _cmd_lint(args: argparse.Namespace) -> None:
+    """Execute lint (markdown-native vault checks; no LLM, no API key needed)."""
+    from pkm.config import Settings
+    from pkm.lint import lint_vault
+
+    vault_root = args.vault or Settings().vault_path
+    if not vault_root:
+        print("ERROR: VAULT_PATH is not set (use --vault or set VAULT_PATH).", file=sys.stderr)
+        sys.exit(1)
+    if not Path(vault_root).is_dir():
+        print(f"ERROR: vault not found: {vault_root}", file=sys.stderr)
+        sys.exit(1)
+
+    report = lint_vault(Path(vault_root))
+    print(json.dumps(report, indent=2))
+    if args.strict and report["broken_count"] > 0:
         sys.exit(1)
 
 

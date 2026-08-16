@@ -13,7 +13,7 @@ plain Markdown read in Obsidian (which provides backlinks/graph/search for free)
 > optimization was the root cause of slow/complex/unreadable output. The old planning
 > docs in `.planning/` and the spec/architecture docs are **historical** — do not
 > treat them as current. The redesign rationale lives in `DECISIONS.md` (2026-06-23
-> entry) and `docs/LEGACY_RETIREMENT_PLAN.md`.
+> entry) and `docs/legacy/LEGACY_RETIREMENT_PLAN.md`.
 
 **Repos:**
 - `pkm-engine` — public GitHub repo (Python single-call pipeline, capture Worker, ingest workflow)
@@ -61,5 +61,6 @@ Log reversible choices in `DECISIONS.md` (Mode A).
 
 ## Known follow-ups
 
-- A markdown-native `lint` (broken `[[wikilinks]]`, orphans) and a notes-count
-  `dashboard` could be rebuilt against `notes/` (the old DB-backed ones were retired).
+- Markdown-native `pkm lint` exists (broken `[[wikilinks]]` + review backlog;
+  warn-only step in ingest.yml). A notes-count `dashboard` against `notes/`
+  remains unbuilt (the old DB-backed one was retired).

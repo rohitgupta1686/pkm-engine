@@ -21,6 +21,13 @@ from pkm.ingest.hashing import slugify
 _FRONT_MATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _TITLE_RE = re.compile(r'^title:\s*"?(.*?)"?\s*$', re.MULTILINE)
 
+# Browser-tab cruft the clipper captures via document.title. Clipping a newsletter
+# inside Gmail yields "<subject> - <account email> - Gmail", which leaks the email
+# address into the note slug AND breaks cross-links (the model links the clean
+# slug while the file carries the polluted one). Stripped at title-extraction time
+# so both the slug and any title consumer see the real subject.
+_GMAIL_TAB_SUFFIX_RE = re.compile(r"\s*-\s*\S+@\S+\s*-\s*Gmail\s*$", re.IGNORECASE)
+
 # Free-text frontmatter fields the model fills with arbitrary article strings.
 # These are the only fields that can carry a stray ``: `` (which YAML reads as a
 # mapping separator), an unbalanced quote, etc. — so they're the only ones we
@@ -57,7 +64,10 @@ def title_from_raw(raw_text: str) -> str:
     fm = _FRONT_MATTER_RE.match(raw_text)
     block = fm.group(1) if fm else raw_text
     m = _TITLE_RE.search(block)
-    return m.group(1).strip() if m else "untitled"
+    if not m:
+        return "untitled"
+    title = _GMAIL_TAB_SUFFIX_RE.sub("", m.group(1).strip()).strip()
+    return title or "untitled"
 
 
 def slug_for_raw(raw_text: str) -> str:
