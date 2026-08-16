@@ -107,6 +107,35 @@ def test_title_and_slug_from_raw():
     assert title_from_raw("no front matter here") == "untitled"
 
 
+def _raw_with_title(title: str) -> str:
+    return f'---\ntitle: "{title}"\nurl: https://x.test\n---\n\nbody text'
+
+
+def test_gmail_tab_suffix_stripped_from_title_and_slug():
+    raw = _raw_with_title(
+        "#164 The Fall of IT Services Firms - rohitgupta.iitr@gmail.com - Gmail"
+    )
+    assert title_from_raw(raw) == "#164 The Fall of IT Services Firms"
+    assert slug_for_raw(raw) == "164-the-fall-of-it-services-firms"
+
+
+def test_gmail_suffix_variants_stripped():
+    # different account, lowercase "gmail", extra whitespace
+    raw = _raw_with_title("Some Subject  -  other.user@example.com - gmail ")
+    assert title_from_raw(raw) == "Some Subject"
+
+
+def test_gmail_like_text_mid_title_untouched():
+    # only a TRAILING "<email> - Gmail" is tab cruft; email mid-title is content
+    raw = _raw_with_title("Why foo@bar.com - Gmail changed email forever")
+    assert title_from_raw(raw) == "Why foo@bar.com - Gmail changed email forever"
+
+
+def test_title_that_is_only_gmail_cruft_falls_back_to_untitled():
+    raw = _raw_with_title("- rohitgupta.iitr@gmail.com - Gmail")
+    assert title_from_raw(raw) == "untitled"
+
+
 def test_synthesize_builds_system_and_user_messages():
     client = FakeLLMClient()
     synthesize_note(

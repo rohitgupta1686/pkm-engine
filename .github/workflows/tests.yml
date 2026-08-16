@@ -1,0 +1,32 @@
+name: tests
+
+# Run the pytest suite on every push and PR. The suite is offline by design —
+# every LLM call goes through fake clients — so no secrets are needed here.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install engine + pytest
+        run: |
+          pip install -e .
+          pip install pytest
+
+      - name: Run tests
+        run: pytest -q
