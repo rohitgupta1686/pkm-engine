@@ -148,8 +148,15 @@ javascript:(function(){
       "X-PKM-Key": SHARED_KEY
     },
     body: JSON.stringify(payload)
-  }).then(function(r){return r.json();})
-    .then(function(j){alert("clip: " + (j.ok ? ("ok -> " + j.path) : "failed"));})
+  }).then(function(r){
+    return r.text().then(function(raw){
+      var j;
+      try { j = JSON.parse(raw); } catch (_) { j = {error: raw || "empty response"}; }
+      if (!r.ok || !j.ok) throw new Error("HTTP " + r.status + ": " + (j.error || "clip failed"));
+      return j;
+    });
+  })
+    .then(function(j){alert("clip: ok -> " + j.path);})
     .catch(function(e){alert("clip failed: " + e);});
 })();
 ```
