@@ -26,6 +26,13 @@ function corsResponse(body, init = {}) {
   });
 }
 
+function clipError(message, status = 502) {
+  return corsResponse(JSON.stringify({ ok: false, error: message }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 // Constant-time shared-secret compare via SHA-256 digests (fixed-length XOR).
 // Avoids short-circuit on the raw secret. Rejects empty env secret defensively.
 async function timingSafeEqual(a, b) {
@@ -193,21 +200,22 @@ export default {
       return corsResponse("payload too large", { status: 413 });
     }
 
-    // 5. Compute the content-addressed path FIRST (deterministic from {url,title,text},
-    //    no timestamp) so the GET-first dedup actually recognizes a re-clip (MVP-02).
-    const path = await computePath({ url, title, text });
+    try {
+      // 5. Compute the content-addressed path FIRST (deterministic from {url,title,text},
+      //    no timestamp) so the GET-first dedup actually recognizes a re-clip (MVP-02).
+      const path = await computePath({ url, title, text });
 
-    // 6. Commit via GitHub Contents API — GET-first idempotency (CLIP-04, Q3, raw/ immutable).
-    //    R2 offload + file build happen ONLY on the create path (404), so a re-clip never
-    //    orphans an R2 blob and never rebuilds a file (05-03 live deploy: R2 was put before
-    //    the dedup check, orphaning a blob on every >200K re-clip).
-    const getUrl = `https://api.github.com/repos/${env.VAULT_OWNER}/${env.VAULT_REPO}/contents/${path}?ref=main`;
-    const exists = await fetch(getUrl, { headers: ghHeaders(env) });
-    let deduped = false;
-    if (exists.status === 200) {
+      // 6. Commit via GitHub Contents API — GET-first idempotency (CLIP-04, Q3, raw/ immutable).
+      //    R2 offload + file build happen ONLY on the create path (404), so a re-clip never
+      //    orphans an R2 blob and never rebuilds a file (05-03 live deploy: R2 was put before
+      //    the dedup check, orphaning a blob on every >200K re-clip).
+      const getUrl = `https://api.github.com/repos/${env.VAULT_OWNER}/${env.VAULT_REPO}/contents/${path}?ref=main`;
+      const exists = await fetch(getUrl, { headers: ghHeaders(env) });
+      let deduped = false;
+      if (exists.status === 200) {
       // raw/ is immutable — path already committed. Skip PUT. Still dispatch (Q3).
       deduped = true;
-    } else if (exists.status === 404) {
+      } else if (exists.status === 404) {
       // Creating a new raw/ file: offload to R2 if >200K (Q1: body still keeps full text),
       // then build front matter + body and PUT.
       let r2key = null;
@@ -237,18 +245,24 @@ export default {
         const errText = await created.text();
         throw new Error(`commit failed: ${created.status} ${errText.replace(env.GH_PAT || "", "***")}`);
       }
-    } else {
-      const errText = await exists.text();
-      throw new Error(`contents GET failed: ${exists.status} ${errText.replace(env.GH_PAT || "", "***")}`);
+      } else {
+        const errText = await exists.text();
+        throw new Error(`contents GET failed: ${exists.status} ${errText.replace(env.GH_PAT || "", "***")}`);
+      }
+
+      // 8. Dispatch (CLIP-05): event_type MUST be exactly "ingest".
+      await dispatch(env, "ingest", { path });
+
+      // 9. Return success.
+      return corsResponse(JSON.stringify({ ok: true, path, deduped }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (err) {
+      // Keep failures CORS-readable in browsers. Without this, an upstream GitHub/R2
+      // or dispatch error becomes Cloudflare's HTML 1101 page and looks like a CORS bug.
+      const message = err instanceof Error ? err.message : "clip failed";
+      return clipError(message);
     }
-
-    // 8. Dispatch (CLIP-05): event_type MUST be exactly "ingest".
-    await dispatch(env, "ingest", { path });
-
-    // 9. Return success.
-    return corsResponse(JSON.stringify({ ok: true, path, deduped }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
   },
 };

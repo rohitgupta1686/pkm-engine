@@ -286,6 +286,27 @@ describe("worker-clip", () => {
     expect(d.body.client_payload.path).toBe(b.path);
   });
 
+  it("returns a CORS-readable JSON error when dispatch fails", async () => {
+    const originalFetch = mock.fetch;
+    mock.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : (input as URL).url ?? (input as Request).url;
+      if (url.endsWith("/dispatches")) return new Response("forbidden", { status: 403 });
+      return originalFetch(input, init);
+    };
+    globalThis.fetch = mock.fetch as any;
+
+    const r = await exports.default.fetch(
+      clipReq(
+        { url: "https://example.com/error", type: "Article", text: "error body", title: "Error" },
+        { "X-PKM-Key": "test-shared-secret" },
+      ),
+    );
+    expect(r.status).toBe(502);
+    expect(r.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(r.headers.get("Content-Type")).toContain("application/json");
+    expect(await r.json()).toMatchObject({ ok: false, error: "dispatch failed: 403" });
+  });
+
   it("commit contract (CLIP-04): PUT /contents/<path> body has message + base64 content; Authorization Bearer test-pat", async () => {
     const r = await exports.default.fetch(
       clipReq(
