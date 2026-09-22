@@ -22,7 +22,7 @@ Usage:
     python3 scripts/compare_models.py \
         --raw "$VAULT_PATH/raw/economist-com__anthropic-...md" \
         --raw "$VAULT_PATH/raw/the-ken-com__...md" \
-        --models glm-5.2 gpt-5.4 \
+        --models glm-5.3 gpt-5.4 \
         --blind
 
 Outputs (under --out, default <vault>/_model_compare/):
@@ -54,7 +54,7 @@ from pkm.store.notes import list_note_slugs, slug_for_raw  # noqa: E402
 # The eval only needs the LLM client's agent_runs cache table, which the stdlib
 # sqlite3 module serves fine. This keeps the comparison runnable without libsql.
 
-DEFAULT_MODELS = ["glm-5.2", "gpt-5.4"]
+DEFAULT_MODELS = ["glm-5.3", "gpt-5.4"]
 
 # Minimal agent_runs schema — the exact columns BaseLLMClient._write_run / _check_cache
 # read and write. (Mirrors migrations/sqlite/004; no other tables are touched here.)

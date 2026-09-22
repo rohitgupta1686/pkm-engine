@@ -44,7 +44,7 @@ def test_glm_uses_zai_max_tokens_param(monkeypatch):
     monkeypatch.setattr("pkm.llm.client.openai.OpenAI", _FakeOpenAI)
 
     client = LLMClient(None, "test-key", "https://api.z.ai/api/paas/v4/")
-    gen = client._generate("glm-5.2", [{"role": "user", "content": "hi"}], None, 123)
+    gen = client._generate("glm-5.3", [{"role": "user", "content": "hi"}], None, 123)
 
     assert gen.text == "ok"
     kwargs = _FakeOpenAI.instances[0].completions.calls[0]
@@ -77,8 +77,8 @@ def test_gemini_uses_max_tokens_param(monkeypatch):
     assert kwargs["reasoning_effort"] == "minimal"
 
 
-def test_glm52_pricing():
-    assert compute_cost("glm-5.2", 1_000_000, 100_000, 500_000) == 3.486
+def test_glm53_pricing():
+    assert compute_cost("glm-5.3", 1_000_000, 100_000, 500_000) == 3.486
 
 
 def test_client_strips_accidental_api_key_whitespace(monkeypatch):

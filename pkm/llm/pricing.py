@@ -1,8 +1,8 @@
 """Per-token pricing for the LLM models used by the pipeline.
 
-Prices are per 1M tokens. GLM-5.2 pricing comes from the Z.AI pricing page
-checked on 2026-07-10. OpenAI pricing entries are retained for fallback and
-model-comparison runs.
+Prices are per 1M tokens. GLM-5.3 is currently accounted at the prior GLM rate
+until Z.AI publishes a public per-token API price; OpenAI pricing entries are
+retained for fallback and model-comparison runs.
 
 compute_cost is pure and unit-tested directly. An unknown model raises KeyError
 deliberately — the pipeline must never silently record cost_usd=0.0 (that was
@@ -11,7 +11,9 @@ the client.py:220 bug this module replaces).
 
 # Per 1M tokens.
 PRICING: dict[str, dict[str, float]] = {
-    "glm-5.2": {
+    # Provisional accounting rate carried forward from GLM-5.2. Reconcile this
+    # entry when Z.AI publishes a public GLM-5.3 per-token API price.
+    "glm-5.3": {
         "input": 1.40,
         "cached": 0.26,
         "output": 4.40,

@@ -1,13 +1,13 @@
 name: ingest
 
-# Cloud ingestion now uses Z.AI GLM-5.2 through the existing OpenAI-compatible
+# Cloud ingestion now uses Z.AI GLM-5.3 through the existing OpenAI-compatible
 # SDK path. It fires PER CLIP: the capture worker commits raw/*.md and fires
 # repository_dispatch(ingest), which this workflow listens for — so a note is
 # synthesized right after a clip lands rather than waiting for the nightly cron.
 # The nightly schedule stays on as an idempotent backstop (--new-only skips notes
 # that already exist). See DECISIONS.md.
 #
-# GLM-5.2 runs through synchronous chat completions because Z.AI's documented
+# GLM-5.3 runs through synchronous chat completions because Z.AI's documented
 # OpenAI-compatible endpoint is /chat/completions; the OpenAI Batch API machinery
 # remains in code as an OpenAI fallback path. No database.
 
@@ -28,7 +28,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    # The GLM-5.2 path is synchronous chat completions (~13s/note): a per-clip run
+    # The GLM-5.3 path is synchronous chat completions (~13s/note): a per-clip run
     # finishes in ~2-3 minutes and even a full nightly backstop over a handful of
     # missed clips stays well under 30. (The old 360-minute ceiling dated from the
     # OpenAI Batch block-poll design, which survives only as a fallback path.)
@@ -57,12 +57,12 @@ jobs:
       - name: Install engine
         run: pip install -e ./engine   # no libsql/Rust deps → fast, wheel-only
 
-      - name: Run batch ingest (GLM-5.2 sync path)
+      - name: Run batch ingest (GLM-5.3 sync path)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: https://api.z.ai/api/paas/v4/
           # Settings has no env_prefix: use bare field names, not PKM_*.
-          SYNTHESIS_MODEL: glm-5.2
+          SYNTHESIS_MODEL: glm-5.3
           RUN_COST_CAP_USD: "0.50"
         run: pkm batch-ingest --new-only --vault "$GITHUB_WORKSPACE/vault"
 

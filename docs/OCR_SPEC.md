@@ -10,7 +10,7 @@
 ## 1. Goal
 
 Transcribe Obsidian image embeds (`![[image N.jpg]]`) in source-note captures into
-text **before** the note goes to GLM-5.2 synthesis, so image-only sections (e.g. the
+text **before** the note goes to GLM-5.3 synthesis, so image-only sections (e.g. the
 "Liking" chapter of `Influence.md`, which exists only as 7 photos) produce real
 content instead of a "captured but not readable" gap.
 
@@ -19,7 +19,7 @@ reusing the existing `LLMClient`. Free-tier, $0.
 
 ## 2. Why Gemini / this shape
 
-- GLM-5.2 is text-only; synthesis stays on it. OCR is a **separate pre-pass**.
+- GLM-5.3 is text-only; synthesis stays on it. OCR is a **separate pre-pass**.
 - Gemini `gemini-3-flash-preview` is vision-capable, free-tier eligible (10K RPD), and
   speaks the OpenAI Chat Completions shape via
   `https://generativelanguage.googleapis.com/v1beta/openai/` — so `pkm/llm/client.py`

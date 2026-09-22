@@ -3,7 +3,7 @@ pkm CLI entry point.
 
 Entry point: pkm.cli:app (see pyproject.toml [project.scripts]).
 
-The redesigned pipeline is a SINGLE GLM-5.2 call per source → one readable
+The redesigned pipeline is a SINGLE GLM-5.3 call per source → one readable
 Markdown note in <vault>/notes/. No Turso, no agents, no embeddings, no database:
 ingestion is meant to run in CI (GitHub Actions) over a git checkout of the vault,
 so nothing runs on a local machine.
@@ -43,7 +43,7 @@ def _build_parser() -> argparse.ArgumentParser:
         aliases=["synthesize"],
         help="Synthesize ONE raw capture into ONE Markdown note (single LLM call).",
         description=(
-            "One GLM-5.2 call turns a raw capture into a readable note in "
+            "One GLM-5.3 call turns a raw capture into a readable note in "
             "<vault>/notes/. No agents, no claim/concept/graph extraction, no "
             "embeddings, no database. (Alias: `synthesize`.)"
         ),
@@ -111,7 +111,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "digest",
         help="Synthesize a weekly digest from notes saved in the last N days.",
         description=(
-            "One GLM-5.2 call turns everything saved to <vault>/notes/ in "
+            "One GLM-5.3 call turns everything saved to <vault>/notes/ in "
             "the last N days into ONE cross-note briefing (themes, connections, "
             "what's worth attention), written back as a `type: digest` note. "
             "Prior digests are excluded from the input so it never folds itself "
@@ -172,7 +172,7 @@ def app() -> None:
 def _build_synthesis_client(settings):
     """Build the DB-free OpenAI-compatible client for note synthesis.
 
-    The single-call path defaults to Z.AI GLM-5.2 and runs without a database
+    The single-call path defaults to Z.AI GLM-5.3 and runs without a database
     (conn=None → no agent_runs cache). Idempotency is the note file's existence;
     spend is tracked in-memory via each call's returned cost_usd.
     """
