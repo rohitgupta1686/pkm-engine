@@ -475,7 +475,7 @@ def test_write_note_applies_sanitize_mermaid():
 
 
 def test_strip_outer_code_fence_bare_fence():
-    # GLM-5.2 quirk: whole note wrapped in a bare ``` fence.
+    # GLM-5.3 quirk: whole note wrapped in a bare ``` fence.
     md = "```\n---\ntitle: Foo\n---\n\n# body\n```\n"
     out = strip_outer_code_fence(md)
     assert out.startswith("---")

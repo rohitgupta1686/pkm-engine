@@ -154,10 +154,10 @@ def test_force_ocr_establishes_baseline_for_one_legacy_source():
         _image(sources)
         synthesis, ocr = FakeSynthesisClient(), FakeOCRClient()
         # First ingest establishes legacy state without OCR.
-        run_source_notes_ingest(synthesis, sources, vault, "glm-5.2")
+        run_source_notes_ingest(synthesis, sources, vault, "glm-5.3")
         # The targeted force option establishes the OCR/image-hash baseline.
         result = run_source_notes_ingest(
-            synthesis, sources, vault, "glm-5.2", ocr_client=ocr,
+            synthesis, sources, vault, "glm-5.3", ocr_client=ocr,
             ocr_model="gemini-3-flash-preview", ocr_enabled=True,
             source_paths=[capture], force_ocr=True,
         )

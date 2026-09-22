@@ -9,7 +9,7 @@ One page, kept current. History lives in git, `DECISIONS.md`, and
 | Piece | Status | Where |
 |---|---|---|
 | Clip capture (bookmarklet → Worker → `raw/` commit + dispatch) | Live | `worker-clip.js`, Cloudflare |
-| Per-clip + nightly ingest (one GLM-5.2 call → `notes/<slug>.md`) | Live | `.github/workflows/ingest.yml` |
+| Per-clip + nightly ingest (one GLM-5.3 call → `notes/<slug>.md`) | Live | `.github/workflows/ingest.yml` |
 | Weekly digest (Sundays 04:00 UTC) | Live | `.github/workflows/digest.yml` |
 | Book/podcast source-notes (Mac-run, iCloud folder, optional `--ocr`) | Live, manual | `pkm ingest-notes` |
 | Vault lint (broken `[[wikilinks]]` + review backlog, warn-only in CI) | Live | `pkm lint`, wired into ingest.yml |
@@ -20,7 +20,7 @@ One page, kept current. History lives in git, `DECISIONS.md`, and
 ## Costs
 
 $0 infrastructure (Cloudflare + GitHub free tiers). LLM spend ≈ $1–2/month on
-Z.AI GLM-5.2 at ~90 clips/month (measured 2026-08). Caps: `RUN_COST_CAP_USD`
+Z.AI GLM-5.3 at ~90 clips/month (measured 2026-08). Caps: `RUN_COST_CAP_USD`
 (default $0.50/run) enforced in `pkm/batch.py`-descended paths.
 
 ## Retired (June 2026 redesign — do not resurrect)

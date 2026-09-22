@@ -1,18 +1,18 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from pkm.llm.models import GLM52
+from pkm.llm.models import GLM53
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-    # --- OpenAI-compatible LLM endpoint (Z.AI GLM-5.2 by default) ---
+    # --- OpenAI-compatible LLM endpoint (Z.AI GLM-5.3 by default) ---
     openai_api_key: str = ""
     openai_base_url: str = "https://api.z.ai/api/paas/v4/"
 
     # Single-call note synthesis model. Override via env SYNTHESIS_MODEL.
     # Settings has no env_prefix, so PKM_SYNTHESIS_MODEL does not bind.
-    synthesis_model: str = GLM52
+    synthesis_model: str = GLM53
     # Vault subdir the single-call path reads existing notes from / writes notes to.
     notes_dirname: str = "notes"
 

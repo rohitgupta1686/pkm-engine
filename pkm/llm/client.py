@@ -4,7 +4,7 @@ Transport + OpenAI-strict-schema only; all (optional) cache / agent_runs / retry
 orchestration lives in pkm.llm.base_client.BaseLLMClient. The single-call
 pipeline constructs this directly with conn=None (DB-free); see
 pkm.cli._build_synthesis_client. The default endpoint is Z.AI's OpenAI-compatible
-GLM-5.2 API, while OpenAI remains usable by overriding OPENAI_BASE_URL/model.
+GLM-5.3 API, while OpenAI remains usable by overriding OPENAI_BASE_URL/model.
 """
 import copy
 import io

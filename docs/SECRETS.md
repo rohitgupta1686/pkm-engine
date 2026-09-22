@@ -10,7 +10,7 @@ Add these secrets to the **pkm-engine** repository:
 
 | Secret | Source | Purpose |
 |--------|--------|---------|
-| `OPENAI_API_KEY` | Z.AI API keys | GLM-5.2 API calls during ingest; name retained because the OpenAI-compatible SDK path reads it |
+| `OPENAI_API_KEY` | Z.AI API keys | GLM-5.3 API calls during ingest; name retained because the OpenAI-compatible SDK path reads it |
 | `OPENAI_BASE_URL` | `https://api.z.ai/api/paas/v4/` | Points the OpenAI-compatible SDK at Z.AI |
 | `TURSO_URL` | [Turso dashboard](https://turso.tech/) → database → URL (e.g., `libsql://your-db.turso.io`) | Turso libSQL connection URL |
 | `TURSO_TOKEN` | [Turso dashboard](https://turso.tech/) → database → create token | Turso auth token |

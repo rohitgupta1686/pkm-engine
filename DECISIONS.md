@@ -5,6 +5,16 @@ See `PKM_Build_Plan_for_Claude_Code.md` §Operating Modes for the distinction.
 
 ---
 
+### Primary synthesis model switched to Z.AI GLM-5.3 (2026-09-22)
+
+The active synthesis path now targets `glm-5.3` through the existing
+OpenAI-compatible Z.AI endpoint. Z.ai's current model/API documentation lists
+GLM-5.3 as available through the general API-key endpoint. The cost guardrail
+temporarily carries forward GLM-5.2's per-token accounting rates because the
+public API page does not publish a GLM-5.3 token price; update
+`pkm/llm/pricing.py` when the provider publishes one.
+
+
 ## Reversible Decisions (Mode A)
 
 Logged autonomously during execution. These are reversible — rework < 1 day.

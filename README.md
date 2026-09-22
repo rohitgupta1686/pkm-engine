@@ -1,6 +1,6 @@
 # pkm-engine — AI-assisted Personal Knowledge Management
 
-Clip an article → one readable Markdown note. **One Z.AI GLM-5.2 call per source**,
+Clip an article → one readable Markdown note. **One Z.AI GLM-5.3 call per source**,
 **$0 infrastructure, no database, no local daemon.** Ingestion runs in GitHub
 Actions over a git checkout of the vault; the vault is plain Markdown you read in
 Obsidian. Your Mac is never in the path.
@@ -14,7 +14,7 @@ browser bookmarklet ──POST──▶ Cloudflare Worker (worker-clip.js)
                                   ▼
                        GitHub Actions (ingest.yml)
                                   │  pkm batch-ingest --new-only
-                                  │  one GLM-5.2 call per new raw capture
+                                  │  one GLM-5.3 call per new raw capture
                                   ▼
                        commits notes/<slug>.md back to pkm-vault
                                   ▼
@@ -42,7 +42,7 @@ pkm batch-ingest --new-only                  # all raw/*.md → notes/ (skips ex
 # `synthesize` / `batch-synthesize` are aliases.
 ```
 
-`SYNTHESIS_MODEL` defaults to `glm-5.2`. `--new-only` skips captures whose note
+`SYNTHESIS_MODEL` defaults to `glm-5.3`. `--new-only` skips captures whose note
 already exists (idempotency = the note file). `batch-ingest` aborts before exceeding
 `RUN_COST_CAP_USD`.
 
@@ -66,7 +66,7 @@ frequency (books/podcasts, not daily clips) makes a manual command fine.
    ```
    OPENAI_API_KEY=...  # Z.AI API key
    OPENAI_BASE_URL=https://api.z.ai/api/paas/v4/
-   SYNTHESIS_MODEL=glm-5.2
+   SYNTHESIS_MODEL=glm-5.3
    SOURCES_DIR=~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Sources
    VAULT_PATH=/path/to/your/local/pkm-vault/checkout
    ```
@@ -77,7 +77,7 @@ frequency (books/podcasts, not daily clips) makes a manual command fine.
 4. Commit + push `notes/` **and** the updated `notes/.notes-state.json` (the
    delta-state sidecar — without it every source re-synthesizes next run).
 
-See `DECISIONS.md` for the GLM-5.2 provider decision and rollback notes.
+See `DECISIONS.md` for the GLM-5.3 provider decision and rollback notes.
 
 ## Capture / Clipper Setup
 

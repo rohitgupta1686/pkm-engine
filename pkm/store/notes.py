@@ -41,7 +41,7 @@ _FIELD_LINE_RE = re.compile(
 _MERMAID_BLOCK_RE = re.compile(r"(```mermaid[^\n]*\n)(.*?)(```)", re.DOTALL)
 
 # A whole-note response wrapped in a stray code fence: an opening fence (bare or
-# ```markdown / ```md) on line 1 and a closing fence on the last line. GLM-5.2
+# ```markdown / ```md) on line 1 and a closing fence on the last line. GLM-5.3
 # intermittently does this — see strip_outer_code_fence.
 _OUTER_OPEN_FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*$")
 _OUTER_CLOSE_FENCE_RE = re.compile(r"^```\s*$")
@@ -121,7 +121,7 @@ def _emit_field(key: str, value: str) -> str:
 def strip_outer_code_fence(markdown: str) -> str:
     """Unwrap a whole note the model wrapped in a stray triple-backtick fence.
 
-    GLM-5.2 intermittently returns the entire response — YAML front matter and all —
+    GLM-5.3 intermittently returns the entire response — YAML front matter and all —
     inside a ```` ``` ```` (or ```` ```markdown ````) code fence. The ``---`` delimiters
     then sit inside the fence, so Obsidian renders the note as one gray code block and
     ``sanitize_frontmatter`` (which needs ``---`` at byte 0) no-ops, writing the broken
@@ -255,7 +255,7 @@ def write_note(
     d = notes_dir(vault_root, notes_dirname)
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{safe_slug}.md"
-    # Unwrap a stray whole-note code fence (GLM-5.2 quirk) FIRST so the front matter
+    # Unwrap a stray whole-note code fence (GLM-5.3 quirk) FIRST so the front matter
     # is exposed, then guarantee parseable frontmatter regardless of what the model
     # emitted, then fix literal \n in mermaid node labels, then normalize to a single
     # trailing newline for byte-stable re-writes.
