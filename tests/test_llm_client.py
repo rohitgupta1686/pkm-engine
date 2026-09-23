@@ -50,8 +50,14 @@ def test_glm_uses_zai_max_tokens_param(monkeypatch):
     kwargs = _FakeOpenAI.instances[0].completions.calls[0]
     assert kwargs["max_tokens"] == 123
     assert "max_completion_tokens" not in kwargs
-    assert kwargs["thinking"] == {"type": "enabled"}
+    assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
     assert kwargs["reasoning_effort"] == "low"
+
+    batch_body = client.build_batch_request(
+        "0", "glm-5.3", [{"role": "user", "content": "hi"}], max_tokens=123
+    )["body"]
+    assert batch_body["thinking"] == {"type": "enabled"}
+    assert "extra_body" not in batch_body
 
 
 def test_glm52_does_not_receive_glm53_thinking_controls(monkeypatch):
