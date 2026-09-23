@@ -76,6 +76,18 @@ markup). Note the Batch 50% discount is already gone — Z.AI is sync-only.
 
 ---
 
+### Execution — explicitly control GLM-5.3 reasoning for synthesis (2026-09-23)
+
+GLM-5.3 enables reasoning by default and uses `max` reasoning effort unless a
+request overrides it. The Z.AI migration initially omitted the model's explicit
+thinking controls; a long article then produced an empty `message.content`, which
+made the ingest run fail with “synthesis returned no note text.” The transport now
+sends `thinking: {type: enabled}` and `reasoning_effort: low` for GLM-5.3. This
+keeps the required reasoning mode enabled while reserving enough of the output
+budget for the Markdown note. The one-call-per-source contract is unchanged.
+
+---
+
 ### Execution — primary synthesis provider switched to Z.AI GLM-5.2 (2026-07-10)
 
 The planned OpenAI → GLM-5.2 swap is executed. Z.AI's GLM-5.2 docs confirm the

@@ -50,6 +50,20 @@ def test_glm_uses_zai_max_tokens_param(monkeypatch):
     kwargs = _FakeOpenAI.instances[0].completions.calls[0]
     assert kwargs["max_tokens"] == 123
     assert "max_completion_tokens" not in kwargs
+    assert kwargs["thinking"] == {"type": "enabled"}
+    assert kwargs["reasoning_effort"] == "low"
+
+
+def test_glm52_does_not_receive_glm53_thinking_controls(monkeypatch):
+    _FakeOpenAI.instances.clear()
+    monkeypatch.setattr("pkm.llm.client.openai.OpenAI", _FakeOpenAI)
+
+    client = LLMClient(None, "test-key", "https://api.z.ai/api/paas/v4/")
+    client._generate("glm-5.2", [{"role": "user", "content": "hi"}], None, 123)
+
+    kwargs = _FakeOpenAI.instances[0].completions.calls[0]
+    assert "thinking" not in kwargs
+    assert "reasoning_effort" not in kwargs
 
 
 def test_openai_fallback_uses_max_completion_tokens(monkeypatch):
