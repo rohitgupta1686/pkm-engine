@@ -157,6 +157,7 @@ class LLMClient(BaseLLMClient):
         messages: list[dict],
         output_schema: type[BaseModel] | None,
         max_tokens: int,
+        for_batch: bool = False,
     ) -> dict[str, Any]:
         """Build the chat.completions request body shared by the sync and batch paths.
 
@@ -177,7 +178,13 @@ class LLMClient(BaseLLMClient):
         # editorial task rather than a coding/research task, so use the lowest
         # supported reasoning level while keeping thinking explicitly enabled.
         if model == "glm-5.3":
-            kwargs["thinking"] = {"type": "enabled"}
+            if for_batch:
+                # Batch requests serialize this dict directly as the HTTP body.
+                kwargs["thinking"] = {"type": "enabled"}
+            else:
+                # The OpenAI SDK rejects provider-specific top-level kwargs;
+                # extra_body merges this field into the outgoing JSON payload.
+                kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
             kwargs["reasoning_effort"] = "low"
         # Gemini 3 defaults to high internal reasoning. OCR is straightforward
         # transcription, so use its OpenAI-compat mapping to Gemini's minimal
@@ -257,7 +264,9 @@ class LLMClient(BaseLLMClient):
             "custom_id": custom_id,
             "method": "POST",
             "url": "/v1/chat/completions",
-            "body": self._chat_kwargs(model, messages, output_schema, max_tokens),
+            "body": self._chat_kwargs(
+                model, messages, output_schema, max_tokens, for_batch=True
+            ),
         }
 
     def submit_batch(self, requests: list[dict]) -> str:
