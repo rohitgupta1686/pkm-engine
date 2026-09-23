@@ -170,6 +170,15 @@ class LLMClient(BaseLLMClient):
         }
         token_param = "max_tokens" if self._uses_legacy_max_tokens(model) else "max_completion_tokens"
         kwargs[token_param] = max_tokens
+        # GLM-5.3 has forced thinking: omitting these fields leaves it at the
+        # provider's default `max` reasoning effort. For long article captures,
+        # that can consume the whole output budget before GLM emits the actual
+        # Markdown answer, leaving message.content empty. Synthesis is an
+        # editorial task rather than a coding/research task, so use the lowest
+        # supported reasoning level while keeping thinking explicitly enabled.
+        if model == "glm-5.3":
+            kwargs["thinking"] = {"type": "enabled"}
+            kwargs["reasoning_effort"] = "low"
         # Gemini 3 defaults to high internal reasoning. OCR is straightforward
         # transcription, so use its OpenAI-compat mapping to Gemini's minimal
         # thinking level; this preserves output tokens and lowers latency/cost.
