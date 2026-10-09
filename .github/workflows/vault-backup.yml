@@ -1,0 +1,56 @@
+name: vault-backup
+
+# GUARD-07: nightly off-site mirror of pkm-vault — the ONLY irreplaceable asset
+# (no database to rebuild from). This used to run only as the last step of
+# ingest.yml; since ingest's auto-triggers were turned off (2026-10-09, article
+# synthesis moved to pkm-engine-local), the mirror would otherwise stop updating.
+# Runs on its own schedule, independent of how notes get written. No LLM calls.
+#
+# The pkm-vault remote is authoritative; this is a ONE-WAY mirror to the existing
+# backup repo, so we force-push to overwrite any divergence there. Force is safe
+# because nothing else writes to the backup. Same secrets and push command as the
+# ingest.yml backup step (BACKUP_REMOTE_URL is scoped to the backup repo only).
+
+on:
+  workflow_dispatch: # manual run, always available
+  schedule:
+    - cron: "30 3 * * *"   # nightly, 03:30 UTC
+
+concurrency:
+  group: vault-backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout vault data
+        uses: actions/checkout@v4
+        with:
+          repository: rohitgupta1686/pkm-vault
+          token: ${{ secrets.VAULT_PAT }}
+          path: vault
+          fetch-depth: 0  # full history so the mirror is complete
+
+      - name: Backup push to second remote
+        working-directory: vault
+        # Clear the checkout extraheader (carries VAULT_PAT, scoped to pkm-vault)
+        # so git uses the backup credential in BACKUP_REMOTE_URL instead. Retry
+        # transient network errors; fail the job (visible in the Actions tab) if
+        # every attempt fails, unlike the warn-only step in ingest.yml.
+        run: |
+          for attempt in 1 2 3; do
+            if git -c http.https://github.com/.extraheader= push --force "${{ secrets.BACKUP_REMOTE_URL }}" HEAD:refs/heads/main; then
+              echo "Backup pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Backup push attempt $attempt failed; retrying in 5s..."
+            sleep 5
+          done
+          echo "ERROR: backup push failed after 3 attempts." >&2
+          exit 1

@@ -30,9 +30,10 @@ per call) instead of GLM-5.3 in GitHub Actions.
   review, because autosync was pushing unreviewed code.
 - **Constraint traded:** "ingestion is GitHub Actions only" no longer holds for
   articles (same trade as 2026-06-25). Reversible: uncomment the two triggers.
-- **Open gap — off-site backup:** the GUARD-07 vault mirror runs only as the last
-  step of `ingest.yml`, so with the triggers off it updates only on manual runs. A
-  standalone nightly `vault-backup.yml` is approved but not yet added.
+- **Off-site backup:** the GUARD-07 vault mirror ran only as the last step of
+  `ingest.yml`, so turning the triggers off stopped it. Fixed by a standalone
+  `.github/workflows/vault-backup.yml` (nightly 03:30 UTC + manual; same secrets
+  and force-push as before, but a failed push now fails the job visibly).
 
 ---
 
