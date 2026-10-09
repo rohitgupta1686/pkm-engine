@@ -47,7 +47,9 @@ plain Markdown read in Obsidian (which provides backlinks/graph/search for free)
 ## Hard Constraints
 
 - **$0 infrastructure** — free tiers only; no paid plan ever
-- **Zero local daemon** — nothing runs on the Mac; ingestion is GitHub Actions only
+- **Zero local daemon** — nothing runs on the Mac; ingestion is GitHub Actions only.
+  *Exception (2026-10-09, see DECISIONS.md):* article synthesis now runs on a Mac via
+  `pkm-engine-local` + local CLIProxyAPI; this repo's CI ingest is manual-only.
 - **`raw/` is immutable** — write-once; re-ingest is idempotent (note-file existence)
 - **No secrets committed** — use `.env.example`, GitHub Actions Secrets, Worker Secrets
 - **No database** — the Markdown vault in git is the only state

@@ -28,10 +28,10 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    # The GLM-5.3 path is synchronous chat completions (~13s/note): a per-clip run
-    # finishes in ~2-3 minutes and even a full nightly backstop over a handful of
-    # missed clips stays well under 30. (The old 360-minute ceiling dated from the
-    # OpenAI Batch block-poll design, which survives only as a fallback path.)
+    # The GLM-5.3 path is synchronous chat completions (~13s/note): a manual run
+    # over a handful of outstanding clips stays well under 30 minutes. (The old
+    # 360-minute ceiling dated from the OpenAI Batch block-poll design, which
+    # survives only as a fallback path.)
     timeout-minutes: 30
 
     steps:
