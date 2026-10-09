@@ -5,6 +5,34 @@ See `PKM_Build_Plan_for_Claude_Code.md` §Operating Modes for the distinction.
 
 ---
 
+### Article ingest moves to `pkm-engine-local` on Opus 5.5; CI auto-triggers off (2026-10-09)
+
+**Reverses the 2026-07-09 entry for articles.** The user wants article AI calls to
+run on Claude Opus 5.5 through the local CLIProxyAPI (flat-rate subscription, $0
+per call) instead of GLM-5.3 in GitHub Actions.
+
+- **CI:** `repository_dispatch` (per clip) and the nightly `schedule` in
+  `.github/workflows/ingest.yml` are commented out; `workflow_dispatch` stays as
+  the manual GLM-5.3 fallback. The capture worker still fires the dispatch; it is
+  now a no-op. While the triggers were on, CI wrote every note within minutes, so
+  the local engine would have found nothing to do.
+- **Port pending:** `pkm-engine-local` lacks three write-time behaviours added here
+  since 2026-07-17 (Gmail title-suffix strip, outer code-fence unwrap,
+  `reviewed: false` guarantee). The Gmail gap alone makes **45 of 397** raw clips
+  slug differently, so an unported local run would write 45 duplicate notes. The
+  port is briefed for Codex in `pkm-engine-local/docs/CODEX_PORT_BRIEF.md`.
+  **Until it lands, no article notes are produced automatically** — run this
+  workflow by hand if a note is needed sooner.
+- **Model id:** the proxy rejects plain `claude-opus-5-5`; it exposes
+  `claude-opus-5-5-a` / `-b` (both resolve upstream to `claude-opus-5-5`).
+- **Mac autosync:** `~/bin/pkm-autosync.sh` (launchd, every 300 s) now syncs only
+  `pkm-vault`; `pkm-engine` and `pkm-engine-local` are committed by hand after
+  review, because autosync was pushing unreviewed code.
+- **Constraint traded:** "ingestion is GitHub Actions only" no longer holds for
+  articles (same trade as 2026-06-25). Reversible: uncomment the two triggers.
+
+---
+
 ### Primary synthesis model switched to Z.AI GLM-5.3 (2026-09-22)
 
 The active synthesis path now targets `glm-5.3` through the existing

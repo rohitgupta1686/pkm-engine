@@ -7,6 +7,10 @@ GLM-5.3 call per source**. $0 infrastructure, no database, no local daemon.
 Ingestion runs in GitHub Actions over a git checkout of the vault; the vault is
 plain Markdown read in Obsidian (which provides backlinks/graph/search for free).
 
+> **Status (2026-10-09):** article ingest is moving to `pkm-engine-local` (Opus 5.5
+> via local CLIProxyAPI). This repo's CI ingest auto-triggers are **off**
+> (`workflow_dispatch` only, GLM-5.3 fallback). See `DECISIONS.md` 2026-10-09.
+
 > **History:** the engine was redesigned in June 2026 from an 8-phase machine-readable
 > knowledge graph (atomic SPO claims, concepts, Turso + Cloudflare Vectorize, a
 > 4-agent chain + per-concept synthesis loop) to this single-call form. That graph

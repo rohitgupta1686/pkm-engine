@@ -1,22 +1,22 @@
 name: ingest
 
-# Cloud ingestion now uses Z.AI GLM-5.3 through the existing OpenAI-compatible
-# SDK path. It fires PER CLIP: the capture worker commits raw/*.md and fires
-# repository_dispatch(ingest), which this workflow listens for — so a note is
-# synthesized right after a clip lands rather than waiting for the nightly cron.
-# The nightly schedule stays on as an idempotent backstop (--new-only skips notes
-# that already exist). See DECISIONS.md.
+# AUTO-TRIGGERS DISABLED (2026-10-09): article synthesis moves to pkm-engine-local
+# (Claude Opus 5.5 via the local CLIProxyAPI, run on a Mac with `pkm`). The
+# per-clip repository_dispatch and the nightly cron are commented out so CI no
+# longer pre-empts the local run; the capture worker's dispatch is now a no-op.
+# workflow_dispatch stays as the manual GLM-5.3 fallback. Re-enable both
+# triggers below to revert. See DECISIONS.md (2026-10-09).
 #
-# GLM-5.3 runs through synchronous chat completions because Z.AI's documented
-# OpenAI-compatible endpoint is /chat/completions; the OpenAI Batch API machinery
-# remains in code as an OpenAI fallback path. No database.
+# When run, this uses Z.AI GLM-5.3 through the OpenAI-compatible SDK path
+# (synchronous chat completions; the OpenAI Batch API machinery remains in code
+# as an OpenAI fallback path). No database.
 
 on:
-  workflow_dispatch: # manual run, always available
-  schedule:
-    - cron: "0 3 * * *"   # nightly backstop for any clip whose dispatch was missed
-  repository_dispatch:
-    types: [ingest]       # per-clip: fired by the capture worker on every clip
+  workflow_dispatch: # manual run, always available (GLM-5.3 fallback)
+  # schedule:
+  #   - cron: "0 3 * * *"   # nightly backstop for any clip whose dispatch was missed
+  # repository_dispatch:
+  #   types: [ingest]       # per-clip: fired by the capture worker on every clip
 
 concurrency:
   group: ingest
