@@ -1,15 +1,24 @@
 name: vault-backup
 
 # GUARD-07: nightly off-site mirror of pkm-vault — the ONLY irreplaceable asset
-# (no database to rebuild from). This used to run only as the last step of
-# ingest.yml; since ingest's auto-triggers were turned off (2026-10-09, article
-# synthesis moved to pkm-engine-local), the mirror would otherwise stop updating.
-# Runs on its own schedule, independent of how notes get written. No LLM calls.
+# (no database to rebuild from). This is the SINGLE writer to the backup repo
+# (the old force-push steps in ingest.yml / digest.yml were removed 2026-10-09).
+# No LLM calls.
 #
-# The pkm-vault remote is authoritative; this is a ONE-WAY mirror to the existing
-# backup repo, so we force-push to overwrite any divergence there. Force is safe
-# because nothing else writes to the backup. Same secrets and push command as the
-# ingest.yml backup step (BACKUP_REMOTE_URL is scoped to the backup repo only).
+# Protection against a damaged primary (2026-10-09):
+#   - main is pushed FAST-FORWARD ONLY. If pkm-vault's history was ever truncated
+#     or rewritten, the push is rejected, the backup's main is left untouched, the
+#     new history is parked on a `diverged-<timestamp>` branch, and the job fails
+#     so it shows up red in the Actions tab. A human decides what to keep.
+#   - every run also pushes a dated tag `snapshot-YYYY-MM-DD`, so each day's state
+#     stays reachable even if main is later moved by hand. (Tags share objects, so
+#     this costs almost no storage.)
+#   - keepalive: GitHub disables scheduled workflows in a public repo after 60 days
+#     with no repo activity. Each run re-enables this workflow via the API, which
+#     resets that timer, so the nightly backup can't silently stop.
+#
+# BACKUP_REMOTE_URL is a full https URL with an embedded credential scoped to the
+# backup repo only.
 
 on:
   workflow_dispatch: # manual run, always available
@@ -22,6 +31,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write   # keepalive step only: re-enable this workflow
 
 jobs:
   run:
@@ -37,20 +47,46 @@ jobs:
           path: vault
           fetch-depth: 0  # full history so the mirror is complete
 
-      - name: Backup push to second remote
+      - name: Backup push to second remote (fast-forward only)
         working-directory: vault
+        env:
+          BACKUP: ${{ secrets.BACKUP_REMOTE_URL }}
         # Clear the checkout extraheader (carries VAULT_PAT, scoped to pkm-vault)
-        # so git uses the backup credential in BACKUP_REMOTE_URL instead. Retry
-        # transient network errors; fail the job (visible in the Actions tab) if
-        # every attempt fails, unlike the warn-only step in ingest.yml.
+        # so git uses the backup credential in BACKUP_REMOTE_URL instead.
         run: |
+          g() { git -c http.https://github.com/.extraheader= "$@"; }
           for attempt in 1 2 3; do
-            if git -c http.https://github.com/.extraheader= push --force "${{ secrets.BACKUP_REMOTE_URL }}" HEAD:refs/heads/main; then
-              echo "Backup pushed on attempt $attempt."
-              exit 0
+            out="$(g push "$BACKUP" HEAD:refs/heads/main 2>&1)" && { echo "Backup pushed on attempt $attempt."; break; }
+            echo "$out" | sed -E 's#https://[^@ ]*@#https://***@#g'
+            if echo "$out" | grep -q -E 'non-fast-forward|fetch first|\[rejected\]'; then
+              branch="diverged-$(date -u +%Y%m%dT%H%M%SZ)"
+              g push "$BACKUP" "HEAD:refs/heads/$branch"
+              echo "::error::pkm-vault history no longer extends the backup's main. Backup main left untouched; new history parked on '$branch'. Inspect before moving main."
+              exit 1
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::backup push failed after 3 attempts."
+              exit 1
             fi
             echo "Backup push attempt $attempt failed; retrying in 5s..."
             sleep 5
           done
-          echo "ERROR: backup push failed after 3 attempts." >&2
-          exit 1
+
+      - name: Dated snapshot tag
+        working-directory: vault
+        env:
+          BACKUP: ${{ secrets.BACKUP_REMOTE_URL }}
+        # A re-run on the same day finds the tag already there; that is fine.
+        run: |
+          tag="snapshot-$(date -u +%F)"
+          if git -c http.https://github.com/.extraheader= push "$BACKUP" "HEAD:refs/tags/$tag" 2>/dev/null; then
+            echo "Pushed $tag."
+          else
+            echo "$tag already exists on the backup (same-day re-run); leaving it."
+          fi
+
+      - name: Keepalive (reset the 60-day schedule-disable timer)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/vault-backup.yml/enable"

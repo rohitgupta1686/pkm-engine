@@ -38,7 +38,7 @@ jobs:
           token: ${{ secrets.VAULT_PAT }}
           path: vault
           persist-credentials: true
-          fetch-depth: 0  # full history for the GUARD-07 backup push
+          fetch-depth: 0  # full history so the rebase-and-push retry works
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -80,27 +80,5 @@ jobs:
           echo "ERROR: failed to push digest note after 5 attempts." >&2
           exit 1
 
-      - name: Backup push to second remote
-        # GUARD-07: off-site mirror of the vault — the ONLY irreplaceable asset
-        # (no Turso/Vectorize to rebuild from). The pkm-vault remote is authoritative;
-        # this is a ONE-WAY mirror, so we force-push to overwrite any divergence on the
-        # backup (e.g. an orphaned commit left when a prior run's primary push was
-        # rejected after this always()-step had already pushed). Force is safe because
-        # nothing else writes to the backup; retry to absorb transient network errors.
-        # BACKUP_REMOTE_URL is a full https URL with an embedded credential scoped to
-        # the backup repo only. Clear the checkout extraheader (carries VAULT_PAT,
-        # scoped to pkm-vault) so git uses the backup credential instead.
-        if: always()
-        working-directory: vault
-        continue-on-error: true
-        run: |
-          for attempt in 1 2 3; do
-            if git -c http.https://github.com/.extraheader= push --force "${{ secrets.BACKUP_REMOTE_URL }}" HEAD:refs/heads/main; then
-              echo "Backup pushed on attempt $attempt."
-              exit 0
-            fi
-            echo "Backup push attempt $attempt failed; retrying in 5s..."
-            sleep 5
-          done
-          echo "WARNING: backup push failed after 3 attempts." >&2
-          exit 1
+      # GUARD-07 off-site backup moved to vault-backup.yml (nightly, single writer,
+      # fast-forward only + dated snapshot tags) — 2026-10-09.

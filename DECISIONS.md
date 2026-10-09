@@ -32,8 +32,13 @@ per call) instead of GLM-5.3 in GitHub Actions.
   articles (same trade as 2026-06-25). Reversible: uncomment the two triggers.
 - **Off-site backup:** the GUARD-07 vault mirror ran only as the last step of
   `ingest.yml`, so turning the triggers off stopped it. Fixed by a standalone
-  `.github/workflows/vault-backup.yml` (nightly 03:30 UTC + manual; same secrets
-  and force-push as before, but a failed push now fails the job visibly).
+  `.github/workflows/vault-backup.yml` (nightly 03:30 UTC + manual), now the
+  single writer to the backup (force-push steps removed from ingest/digest).
+  Hardened the same day: main is pushed **fast-forward only** (a truncated or
+  rewritten vault is parked on a `diverged-*` branch and the job fails instead of
+  overwriting the backup), every run adds a `snapshot-YYYY-MM-DD` tag, and a
+  keepalive re-enables the workflow each run so GitHub's 60-day inactivity rule
+  can't silently stop it.
 
 ---
 
